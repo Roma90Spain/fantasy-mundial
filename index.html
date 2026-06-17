@@ -1750,7 +1750,26 @@ function renderTablaGrupos(){
 
 // ===== PRÓXIMO PARTIDO / CUENTA ATRÁS =====
 const MONTH_MAP = {'Jun':5,'Jul':6};
-const MATCH_DURATION_MS = 2 * 60 * 60 * 1000; // 2 horas
+
+// Timing constants (all in ms)
+const PRE_MATCH_WARN  = 3 * 60 * 60 * 1000; // -3h: show upcoming matches
+const HALF1_DURATION  = 45 * 60 * 1000;   // 45 min first half
+const HALF1_EXTRA     =  5 * 60 * 1000;   // up to 5min extra time 1st half
+const HALF_TIME       = 15 * 60 * 1000;   // 15 min break
+const HALF2_DURATION  = 45 * 60 * 1000;   // 45 min second half
+const HALF2_EXTRA     =  5 * 60 * 1000;   // up to 5min extra time 2nd half
+const POST_MATCH      = 60 * 60 * 1000;   // 60 min after: "Finalizado"
+
+// Timeline from kickoff (t=0):
+// t < -60min  → ignore
+// -60min ≤ t < 0  → PRE: countdown to kickoff
+// 0 ≤ t < 45min   → 1ª PARTE: min 1'→45'
+// 45min ≤ t < 50min → 1ª PARTE: 45+1' → 45+5'
+// 50min ≤ t < 65min → DESCANSO
+// 65min ≤ t < 110min → 2ª PARTE: min 1'→45'
+// 110min ≤ t < 115min → 2ª PARTE: 45+1'→45+5'
+// 115min ≤ t < 175min → FINALIZADO (60min)
+// t ≥ 175min → desaparece
 
 function parseMatchDate(m){
   const parts = m.fecha.split(' ');
@@ -1758,54 +1777,117 @@ function parseMatchDate(m){
   const month = MONTH_MAP[parts[1]];
   if(month === undefined) return null;
   const [hh, mm] = m.hora.split(':').map(Number);
-  // CEST = UTC+2, so subtract 2h to get UTC
-  return new Date(Date.UTC(2026, month, day, hh - 2, mm));
+  // CEST = UTC+2. Subtract 2h but handle day rollover properly
+  const d = new Date(Date.UTC(2026, month, day, hh, mm));
+  d.setUTCHours(d.getUTCHours() - 2);
+  return d;
 }
 
-function getMatchStatus(){
-  const now = new Date();
-  let liveMatch = null, liveStart = null;
-  let nextMatch = null, nextDate = null;
+function getMatchPhase(kickoff, now){
+  const t = now - kickoff; // ms since kickoff (negative = before)
+  const MIN = 60 * 1000;
 
-  // Sort CALENDARIO by date
-  const sorted = [...CALENDARIO].sort((a,b)=>{
-    const da = parseMatchDate(a), db = parseMatchDate(b);
-    return da - db;
-  });
+  if(t < -3*60*MIN) return null;                        // too early, ignore
+  if(t < 0)       return {phase:'PRE',   t};            // -60min to 0
+  if(t < 45*MIN)  return {phase:'H1',    t};            // 1ª parte 1-45'
+  if(t < 50*MIN)  return {phase:'H1EX',  t};            // 45+1 to 45+5
+  if(t < 65*MIN)  return {phase:'HT',    t};            // descanso
+  if(t < 110*MIN) return {phase:'H2',    t};            // 2ª parte 1-45'
+  if(t < 115*MIN) return {phase:'H2EX',  t};            // 45+1 to 45+5
+  if(t < 175*MIN) return {phase:'FT',    t};            // finalizado
+  return {phase:'DONE', t};                             // desaparece
+}
 
-  for(const m of sorted){
-    const start = parseMatchDate(m);
-    if(!start) continue;
-    const end = new Date(start.getTime() + MATCH_DURATION_MS);
+function formatCD(ms){
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const d = Math.floor(totalSec / 86400);
+  const h = Math.floor((totalSec % 86400) / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if(d > 0) return `${d}D ${String(h).padStart(2,'0')}H ${String(m).padStart(2,'0')}M`;
+  if(h > 0) return `${String(h).padStart(2,'0')}H ${String(m).padStart(2,'0')}M ${String(s).padStart(2,'0')}S`;
+  return `${String(m).padStart(2,'0')}M ${String(s).padStart(2,'0')}S`;
+}
 
-    if(now >= start && now < end){
-      // Match is currently live
-      if(!liveMatch){ liveMatch = m; liveStart = start; }
-    } else if(now < start){
-      // Future match
-      if(!nextMatch){ nextMatch = m; nextDate = start; }
+// Get team names for a match — supports group stage and knockout
+function getMatchTeams(m){
+  if(m.local && m.visit) return {local: m.local, visit: m.visit};
+  // Knockout match — look up in DATA.knockout
+  const ko = (DATA.knockout||{})[m.id]||{};
+  return {
+    local: ko.a || (m.slot_a || '?'),
+    visit: ko.b || (m.slot_b || '?')
+  };
+}
+
+// Get label for knockout round
+function getKoLabel(id){
+  if(!id) return '';
+  if(id.startsWith('r16')) return 'Octavos de final';
+  if(id.startsWith('qf'))  return 'Cuartos de final';
+  if(id.startsWith('sf'))  return 'Semifinal';
+  if(id.startsWith('f_'))  return 'Final';
+  return '';
+}
+
+function buildMatchHtml(m, phase, t, isLast){
+  const MIN = 60*1000;
+  const {local, visit} = getMatchTeams(m);
+  const fL = FLAGS[local]||'', fV = FLAGS[visit]||'';
+  const teams = `${fL} ${local} <span style="color:var(--muted);font-size:0.72rem">vs</span> ${visit} ${fV}`;
+  const sep = isLast ? '' : 'border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:8px;margin-bottom:8px';
+  let badge='', counter='', sub='';
+
+  if(phase==='PRE'){
+    const remaining = -t;
+    const groupLabel = m.g ? `Grupo ${m.g}` : getKoLabel(m.id);
+    const teams_label = getMatchTeams(m);
+    badge = `<span style="font-size:0.62rem;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:1.5px">⏳ ${groupLabel}</span>`;
+    if(remaining < 2*60*60*1000){
+      // Less than 2 hours: show live countdown
+      counter = `<div style="font-size:1.1rem;font-weight:800;color:var(--accent);font-family:'Bebas Neue',sans-serif;letter-spacing:2px">${formatCD(remaining)}</div>`;
+      sub = `${m.fecha} · ${m.hora}h (España)`;
+    } else {
+      // More than 2 hours: show date + time only
+      counter = `<div style="font-size:0.85rem;font-weight:700;color:var(--accent)">${m.fecha} · ${m.hora}h (España)</div>`;
+      sub = '';
     }
+  } else if(phase==='H1'){
+    const min = Math.floor(t/MIN)+1;
+    badge = `<span style="background:#cc0000;border-radius:3px;padding:1px 6px;font-size:0.62rem;font-weight:800;color:#fff;letter-spacing:1px">🔴 1ª PARTE</span>`;
+    counter = `<div style="font-size:1.1rem;font-weight:800;color:#ff6b6b;font-family:'Bebas Neue',sans-serif;letter-spacing:2px">${min}'</div>`;
+    sub = `${m.g ? 'Grupo '+m.g : getKoLabel(m.id)} · ${m.hora}h`;
+  } else if(phase==='H1EX'){
+    const extra = Math.floor((t-45*MIN)/MIN)+1;
+    badge = `<span style="background:#cc0000;border-radius:3px;padding:1px 6px;font-size:0.62rem;font-weight:800;color:#fff;letter-spacing:1px">🔴 1ª PARTE</span>`;
+    counter = `<div style="font-size:1.1rem;font-weight:800;color:#ff6b6b;font-family:'Bebas Neue',sans-serif;letter-spacing:2px">45+${extra}'</div>`;
+    sub = `${m.g ? 'Grupo '+m.g : getKoLabel(m.id)} · ${m.hora}h`;
+  } else if(phase==='HT'){
+    badge = `<span style="background:#666;border-radius:3px;padding:1px 6px;font-size:0.62rem;font-weight:800;color:#fff;letter-spacing:1px">☕ DESCANSO</span>`;
+    counter = '';
+    sub = `Grupo ${m.g} · 2ª parte en breve`;
+  } else if(phase==='H2'){
+    const min = Math.floor((t-65*MIN)/MIN)+1;
+    badge = `<span style="background:#cc0000;border-radius:3px;padding:1px 6px;font-size:0.62rem;font-weight:800;color:#fff;letter-spacing:1px">🔴 2ª PARTE</span>`;
+    counter = `<div style="font-size:1.1rem;font-weight:800;color:#ff6b6b;font-family:'Bebas Neue',sans-serif;letter-spacing:2px">${min}'</div>`;
+    sub = `${m.g ? 'Grupo '+m.g : getKoLabel(m.id)} · ${m.hora}h`;
+  } else if(phase==='H2EX'){
+    const extra = Math.floor((t-110*MIN)/MIN)+1;
+    badge = `<span style="background:#cc0000;border-radius:3px;padding:1px 6px;font-size:0.62rem;font-weight:800;color:#fff;letter-spacing:1px">🔴 2ª PARTE</span>`;
+    counter = `<div style="font-size:1.1rem;font-weight:800;color:#ff6b6b;font-family:'Bebas Neue',sans-serif;letter-spacing:2px">45+${extra}'</div>`;
+    sub = `${m.g ? 'Grupo '+m.g : getKoLabel(m.id)} · ${m.hora}h`;
+  } else if(phase==='FT'){
+    badge = `<span style="background:#1a4a1a;border-radius:3px;padding:1px 6px;font-size:0.62rem;font-weight:800;color:#4caf7d;letter-spacing:1px">✅ FINALIZADO</span>`;
+    counter = '';
+    sub = `${m.g ? 'Grupo '+m.g : getKoLabel(m.id)} · ${m.hora}h`;
   }
 
-  return {liveMatch, liveStart, nextMatch, nextDate};
-}
-
-function formatCountdown(ms, short=false){
-  if(ms <= 0) return '00:00';
-  const totalSec = Math.floor(ms / 1000);
-  const days = Math.floor(totalSec / 86400);
-  const hours = Math.floor((totalSec % 86400) / 3600);
-  const mins = Math.floor((totalSec % 3600) / 60);
-  const secs = totalSec % 60;
-  if(days > 0) return `${days}D ${String(hours).padStart(2,'0')}H ${String(mins).padStart(2,'0')}M`;
-  if(hours > 0) return `${String(hours).padStart(2,'0')}H ${String(mins).padStart(2,'0')}M ${String(secs).padStart(2,'0')}S`;
-  return `${String(mins).padStart(2,'0')}M ${String(secs).padStart(2,'0')}S`;
-}
-
-function formatElapsed(ms){
-  const totalSec = Math.floor(ms / 1000);
-  const mins = Math.floor(totalSec / 60);
-  return `${mins}'`;
+  return `<div style="${sep}">
+    <div style="margin-bottom:3px">${badge}</div>
+    <div style="font-size:0.85rem;font-weight:700;color:var(--text);margin-bottom:2px">${teams}</div>
+    ${counter}
+    <div style="font-size:0.62rem;color:rgba(220,232,244,0.4);margin-top:1px">${sub}</div>
+  </div>`;
 }
 
 let countdownInterval = null;
@@ -1814,53 +1896,53 @@ function startCountdown(){
   const widget = document.getElementById('nextMatchWidget');
   const teamsEl = document.getElementById('nextMatchTeams');
   const countEl = document.getElementById('nextMatchCountdown');
-  const infoEl = document.getElementById('nextMatchInfo');
+  const infoEl  = document.getElementById('nextMatchInfo');
 
   function tick(){
     const now = new Date();
-    const {liveMatch, liveStart, nextMatch, nextDate} = getMatchStatus();
+    // Combine group stage + knockout matches
+    const koMatches = (typeof FASE_FINAL !== 'undefined')
+      ? FASE_FINAL.flatMap(fase => fase.partidos.map(p => ({
+          id: p.id,
+          g: '',
+          fecha: p.fecha,
+          hora: p.hora,
+          local: '',
+          visit: '',
+          _koLabel: fase.label
+        })))
+      : [];
+    const sorted = [...CALENDARIO, ...koMatches]
+      .sort((a,b)=>(parseMatchDate(a)||0)-(parseMatchDate(b)||0));
 
-    if(!liveMatch && !nextMatch){
+    let blocks = [];
+    let foundNext = false;
+
+    for(const m of sorted){
+      const kickoff = parseMatchDate(m);
+      if(!kickoff) continue;
+      const info = getMatchPhase(kickoff, now);
+      if(!info) continue;
+      if(info.phase === 'DONE') continue;
+
+      // For PRE phase, show all upcoming matches
+      if(info.phase === 'PRE'){
+        blocks.push({m, phase:info.phase, t:info.t});
+        continue;
+      }
+
+      blocks.push({m, phase:info.phase, t:info.t});
+    }
+
+    if(!blocks.length){
       widget.style.display = 'none';
       return;
     }
 
     widget.style.display = 'block';
-    let html = '';
-
-    // LIVE match block
-    if(liveMatch){
-      const elapsed = now - liveStart;
-      const remaining = MATCH_DURATION_MS - elapsed;
-      const fL = FLAGS[liveMatch.local]||'';
-      const fV = FLAGS[liveMatch.visit]||'';
-      html += `<div style="margin-bottom:${nextMatch?'10px':'0'}">
-        <div style="display:flex;align-items:center;gap:6px;justify-content:center;margin-bottom:3px">
-          <span style="background:#cc0000;border-radius:50%;width:7px;height:7px;display:inline-block;animation:blink 1s infinite;flex-shrink:0"></span>
-          <span style="font-size:0.65rem;font-weight:800;color:#ff4444;letter-spacing:1.5px;text-transform:uppercase">EN JUEGO</span>
-          <span style="font-size:0.72rem;color:#ff8888;font-weight:700">${formatElapsed(elapsed)}</span>
-        </div>
-        <div style="font-size:0.88rem;font-weight:700;color:var(--text)">${fL} ${liveMatch.local} <span style="color:var(--muted);font-size:0.72rem">vs</span> ${liveMatch.visit} ${fV}</div>
-        <div style="font-size:0.65rem;color:rgba(220,232,244,0.4);margin-top:1px">Grupo ${liveMatch.g} · ${liveMatch.hora}h</div>
-      </div>`;
-    }
-
-    // NEXT match block
-    if(nextMatch){
-      const diff = nextDate - now;
-      const fL = FLAGS[nextMatch.local]||'';
-      const fV = FLAGS[nextMatch.visit]||'';
-      html += `<div style="${liveMatch?'border-top:1px solid rgba(255,255,255,0.06);padding-top:8px':''}">
-        <div style="font-size:0.62rem;color:rgba(220,232,244,0.4);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Próximo partido</div>
-        <div style="font-size:0.82rem;font-weight:700;color:var(--text);margin-bottom:2px">${fL} ${nextMatch.local} <span style="color:var(--muted);font-size:0.72rem">vs</span> ${nextMatch.visit} ${fV}</div>
-        <div style="font-size:1.05rem;font-weight:800;color:var(--accent);font-family:'Bebas Neue',sans-serif;letter-spacing:2px">${formatCountdown(diff)}</div>
-        <div style="font-size:0.62rem;color:rgba(220,232,244,0.4);margin-top:1px">Grupo ${nextMatch.g} · ${nextMatch.fecha} · ${nextMatch.hora}h (España)</div>
-      </div>`;
-    }
-
-    teamsEl.innerHTML = html;
+    teamsEl.innerHTML = blocks.map((b,i) => buildMatchHtml(b.m, b.phase, b.t, i===blocks.length-1)).join('');
     countEl.textContent = '';
-    infoEl.textContent = '';
+    infoEl.textContent  = '';
   }
 
   tick();
