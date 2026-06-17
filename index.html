@@ -428,17 +428,17 @@ ul.ranking{list-style:none}
   </div>
 
   <div class="panel" id="bootsPanel" style="display:none">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <div style="font-weight:700;font-size:0.95rem">👟 Bota de Oro</div>
-      <button onclick="openBootsEditor()" style="background:rgba(240,192,64,0.1);border:1px solid rgba(240,192,64,0.3);color:var(--accent);border-radius:8px;padding:4px 10px;font-size:0.75rem;cursor:pointer">✏️ Editar</button>
+    <div style="margin-bottom:12px">
+      <div style="font-weight:700;font-size:0.95rem">👟 Bota de Oro — Goleadores del Mundial</div>
+      <div style="font-size:0.72rem;color:var(--muted);margin-top:3px">Se actualiza al importar partidos en ⚽ Grupos</div>
     </div>
     <div id="bootsContent"></div>
   </div>
 
   <div class="panel" id="glovesPanel" style="display:none">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <div style="font-weight:700;font-size:0.95rem">🧤 Guante de Oro</div>
-      <button onclick="openGlovesEditor()" style="background:rgba(0,229,255,0.08);border:1px solid rgba(0,229,255,0.25);color:#00e5ff;border-radius:8px;padding:4px 10px;font-size:0.75rem;cursor:pointer">✏️ Editar</button>
+    <div style="margin-bottom:12px">
+      <div style="font-weight:700;font-size:0.95rem">🧤 Guante de Oro — Porteros menos goleados</div>
+      <div style="font-size:0.72rem;color:var(--muted);margin-top:3px">Se actualiza al importar partidos en ⚽ Grupos</div>
     </div>
     <div id="glovesContent"></div>
   </div>
@@ -469,6 +469,11 @@ ul.ranking{list-style:none}
         <label style="font-size:0.78rem;color:var(--muted);white-space:nowrap">⚽ Resultado:</label>
         <input type="text" id="resultadoInput" class="url-input" placeholder="ej. 2-1" style="max-width:90px;text-align:center;font-weight:700;font-size:0.95rem">
         <span style="font-size:0.72rem;color:var(--muted)">(local-visit)</span>
+      </div>
+      <div style="margin-bottom:8px">
+        <div style="font-size:0.78rem;color:var(--muted);margin-bottom:5px">⚽ Goleadores del partido:</div>
+        <div id="golesRows" style="margin-bottom:5px"></div>
+        <button onclick="addGolRow()" style="background:rgba(76,175,125,0.1);border:1px solid rgba(76,175,125,0.25);color:var(--accent2);border-radius:7px;padding:4px 12px;font-size:0.75rem;cursor:pointer;width:100%">+ Añadir goleador</button>
       </div>
       <div style="font-size:0.78rem;color:var(--muted);margin-bottom:6px">Pega el texto de "Puntos oficiales" de Comuniazo:</div>
       <textarea id="partidoPasteArea" class="url-input" rows="6" style="resize:vertical;font-family:inherit" placeholder="Pega aquí el texto copiado de Comuniazo..."></textarea>
@@ -791,6 +796,11 @@ document.getElementById('partidoSelect').addEventListener('change', function(){
   document.getElementById('partidoPasteArea').value='';
   const ri=document.getElementById('resultadoInput');
   if(ri) ri.value=RESULTADOS[id]||'';
+  clearGolRows();
+  // Pre-fill goles if already have data
+  if(DATA.historialPartidos && DATA.historialPartidos[id] && DATA.historialPartidos[id].goles){
+    DATA.historialPartidos[id].goles.forEach(g => addGolRow(g.name, g.num));
+  }
   imp.style.display='block';
 });
 
@@ -856,6 +866,9 @@ document.getElementById('partidoImportBtn').addEventListener('click', function()
   }
 
   if(!jugadores.length){ setStatus('No se reconoció ningún jugador. Revisa el formato.',true); return; }
+  // Recoger goles del partido antes de importar
+  const golRows = getGolRows();
+
   // Snapshot de posiciones ANTES de aplicar
   const snapSorted=getSorted();
   DATA.prevPositions={};
@@ -863,6 +876,8 @@ document.getElementById('partidoImportBtn').addEventListener('click', function()
   const resInput=document.getElementById('resultadoInput');
   if(resInput && resInput.value.trim()) RESULTADOS[id]=resInput.value.trim();
   DATA.historialPartidos[id]={local:partido.local,visitante:partido.visit,fecha:partido.fecha,jugadores};
+  // Apply goles to Bota/Guante de Oro
+  if(golRows.length) applyGolesToAwards(golRows, {id, local:partido.local, visitante:partido.visit});
   setStatus(`✅ ${jugadores.length} jugadores importados para ${partido.local} vs ${partido.visit}`);
   saveToLS();
   updateLastImportedBadge();
@@ -1454,57 +1469,149 @@ function renderGloves(){
   }).join('');
 }
 
-let modalMode = ''; // 'botas' or 'guantes'
-
-function openBootsEditor(){
-  if(!adminOk()) return;
-  modalMode = 'botas';
-  const botas = getBotas();
-  const txt = botas.length
-    ? botas.map(p=>`${p.name}|${p.nat||""}|${p.goals}|${p.club||""}`).join("\n")
-    : ['Mbappé|Francia|4|','Messi|Argentina|3|','Haaland|Noruega|3|'].join('\n');
-  document.getElementById('modalTitle').textContent = '👟 Editar Bota de Oro';
-  document.getElementById('modalDesc').textContent = 'Formato: Nombre|Selección|Goles|Club (uno por línea)';
-  document.getElementById('modalTextarea').value = txt;
-  document.getElementById('awardsModal').style.display = 'block';
+// ===== GOLES DEL PARTIDO =====
+function addGolRow(nombre='', goles=1){
+  const container = document.getElementById('golesRows');
+  const rowId = 'golrow_' + Date.now() + Math.random().toString(36).slice(2);
+  const row = document.createElement('div');
+  row.id = rowId;
+  row.style.cssText = 'position:relative;margin-bottom:6px';
+  row.innerHTML = `
+    <div style="display:flex;gap:5px;align-items:center">
+      <div style="flex:1;position:relative">
+        <input class="url-input gol-nombre" placeholder="Jugador..." value="${nombre}"
+          style="width:100%;padding:6px 8px;font-size:0.82rem"
+          oninput="showGolSuggest(this)"
+          onblur="setTimeout(()=>hideGolSuggest(this),200)"
+          autocomplete="off">
+        <div class="gol-suggest" style="display:none;position:absolute;top:100%;left:0;right:0;background:#0a160c;border:1px solid var(--border);border-radius:8px;z-index:200;max-height:160px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.7)"></div>
+      </div>
+      <input class="url-input gol-num" type="number" min="1" max="10" value="${goles}"
+        style="width:52px;padding:6px 4px;font-size:0.85rem;text-align:center">
+      <button onclick="document.getElementById('${rowId}').remove()"
+        style="background:rgba(255,80,80,0.15);border:1px solid rgba(255,80,80,0.3);color:#ff6b6b;border-radius:6px;padding:4px 8px;font-size:0.8rem;cursor:pointer;flex-shrink:0">✕</button>
+    </div>`;
+  container.appendChild(row);
 }
 
-function openGlovesEditor(){
-  if(!adminOk()) return;
-  modalMode = 'guantes';
-  const guantes = getGuantes();
-  const txt = guantes.length
-    ? guantes.map(p=>`${p.name}|${p.nat||""}|${p.gc}|${p.cs||0}|${p.games||0}`).join("\n")
-    : ['Courtois|Bélgica|0|2|2','Unai Simon|España|1|1|2'].join('\n');
-  document.getElementById('modalTitle').textContent = '🧤 Editar Guante de Oro';
-  document.getElementById('modalDesc').textContent = 'Formato: Nombre|Selección|GolesConcedidos|PorteríasACero|Partidos (uno por línea)';
-  document.getElementById('modalTextarea').value = txt;
-  document.getElementById('awardsModal').style.display = 'block';
+function showGolSuggest(input){
+  const q = input.value.trim().toLowerCase();
+  const suggest = input.nextElementSibling;
+  if(q.length < 1){ suggest.style.display='none'; return; }
+
+  // Search in playerBase keys
+  const matches = Object.keys(DATA.playerBase)
+    .filter(n => n.toLowerCase().includes(q))
+    .sort((a,b) => {
+      // Prioritize starts-with over contains
+      const as = a.toLowerCase().startsWith(q) ? 0 : 1;
+      const bs = b.toLowerCase().startsWith(q) ? 0 : 1;
+      return as - bs || a.localeCompare(b);
+    })
+    .slice(0, 8);
+
+  if(!matches.length){ suggest.style.display='none'; return; }
+
+  suggest.innerHTML = matches.map(n => {
+    const db = PLAYERS_DB[n];
+    const flag = db ? (FLAGS[db[1]]||'') : '';
+    const pos = db ? db[0] : '';
+    return `<div onclick="selectGolPlayer(this.closest('.gol-suggest').previousElementSibling, '${n.replace(/'/g,"&#39;")}')"
+      style="padding:7px 10px;cursor:pointer;font-size:0.82rem;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.05)"
+      onmouseenter="this.style.background='rgba(240,192,64,0.1)'"
+      onmouseleave="this.style.background=''">
+      <span>${flag} ${n}</span>
+      <span style="font-size:0.68rem;color:var(--muted)">${pos}</span>
+    </div>`;
+  }).join('');
+  suggest.style.display = 'block';
 }
 
-function saveAwardsModal(){
-  const txt = document.getElementById('modalTextarea').value.trim();
-  const lines = txt.split("\n").map(l=>l.trim()).filter(Boolean);
-  if(modalMode==='botas'){
-    DATA.botas = lines.map(l=>{
-      const [name,nat,goals,club] = l.split('|');
-      return {name:name.trim(), nat:nat.trim(), goals:parseInt(goals)||0, club:(club||'').trim()};
-    });
-    saveToLS(); renderBoots();
-  } else {
-    DATA.guantes = lines.map(l=>{
-      const [name,nat,gc,cs,games] = l.split('|');
-      return {name:name.trim(), nat:nat.trim(), gc:parseInt(gc)||0, cs:parseInt(cs)||0, games:parseInt(games)||0};
-    });
-    saveToLS(); renderGloves();
-  }
-  closeAwardsModal();
-  setStatus('✅ Datos guardados');
+function selectGolPlayer(input, name){
+  input.value = name;
+  input.nextElementSibling.style.display = 'none';
 }
 
+function hideGolSuggest(input){
+  const suggest = input.nextElementSibling;
+  if(suggest) suggest.style.display = 'none';
+}
+
+function clearGolRows(){
+  document.getElementById('golesRows').innerHTML = '';
+}
+
+function getGolRows(){
+  const rows = document.querySelectorAll('#golesRows > div');
+  const result = [];
+  rows.forEach(r => {
+    const name = r.querySelector('.gol-nombre').value.trim();
+    const num = parseInt(r.querySelector('.gol-num').value) || 1;
+    if(name) result.push({name, num});
+  });
+  return result;
+}
+
+function applyGolesToAwards(goles, partido){
+  if(!goles.length) return;
+  if(!DATA.botas) DATA.botas = [];
+  if(!DATA.guantes) DATA.guantes = [];
+
+  // Sum goals to scorers
+  goles.forEach(({name, num}) => {
+    // Find nationality from PLAYERS_DB or friends teams
+    const db = PLAYERS_DB[name];
+    const nat = db ? db[1] : '';
+    let entry = DATA.botas.find(b => b.name === name);
+    if(entry){
+      entry.goals = (entry.goals||0) + num;
+    } else {
+      DATA.botas.push({name, nat, goals:num, club:''});
+    }
+  });
+
+  // Find goalkeeper of the opposing team for each goal
+  // We need to know which team conceded — find from partido info
+  // Goals come from players of local/visit teams — find who scored and who their GK is
+  const totalGoals = goles.reduce((s,g) => s+g.num, 0);
+
+  // Try to figure out local/visit team for each scorer
+  goles.forEach(({name, num}) => {
+    const db = PLAYERS_DB[name];
+    if(!db) return;
+    const scorerNat = db[1];
+    // The conceding team is the OTHER team in the match
+    const concedingTeam = scorerNat === partido.local ? partido.visitante : partido.local;
+    // Find their GK
+    const gkEntry = DATA.guantes.find(g => g.nat === concedingTeam);
+    // Also find from historial jugadores
+    const h = DATA.historialPartidos[partido.id];
+    let gkName = null;
+    if(h){
+      const gkInMatch = h.jugadores.find(j => {
+        const jdb = PLAYERS_DB[j.nombre];
+        return jdb && jdb[0]==='PT' && jdb[1]===concedingTeam;
+      });
+      if(gkInMatch) gkName = gkInMatch.nombre;
+    }
+    if(gkName){
+      const gkDb = PLAYERS_DB[gkName];
+      let gk = DATA.guantes.find(g => g.name === gkName);
+      if(gk){
+        gk.gc = (gk.gc||0) + num;
+        gk.games = (gk.games||0);
+      } else {
+        DATA.guantes.push({name:gkName, nat:concedingTeam, gc:num, cs:0, games:1});
+      }
+    } else if(gkEntry){
+      gkEntry.gc = (gkEntry.gc||0) + num;
+    }
+  });
+}
+
+// Keep modal functions but simplified (no longer primary flow)
 function closeAwardsModal(){
   document.getElementById('awardsModal').style.display='none';
-  modalMode='';
 }
 
 // ===== LOCALSTORAGE =====
