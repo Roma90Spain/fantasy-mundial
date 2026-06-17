@@ -1752,7 +1752,7 @@ function renderTablaGrupos(){
 const MONTH_MAP = {'Jun':5,'Jul':6};
 
 // Timing constants (all in ms)
-const PRE_MATCH_WARN  = 3 * 60 * 60 * 1000; // -3h: show upcoming matches
+const PRE_MATCH_WARN  = 24 * 60 * 60 * 1000; // -24h: show upcoming matches
 const HALF1_DURATION  = 45 * 60 * 1000;   // 45 min first half
 const HALF1_EXTRA     =  5 * 60 * 1000;   // up to 5min extra time 1st half
 const HALF_TIME       = 15 * 60 * 1000;   // 15 min break
@@ -1787,7 +1787,7 @@ function getMatchPhase(kickoff, now){
   const t = now - kickoff; // ms since kickoff (negative = before)
   const MIN = 60 * 1000;
 
-  if(t < -3*60*MIN) return null;                        // too early, ignore
+  if(t < -24*60*MIN) return null;                       // too early, ignore
   if(t < 0)       return {phase:'PRE',   t};            // -60min to 0
   if(t < 45*MIN)  return {phase:'H1',    t};            // 1ª parte 1-45'
   if(t < 50*MIN)  return {phase:'H1EX',  t};            // 45+1 to 45+5
@@ -1843,13 +1843,11 @@ function buildMatchHtml(m, phase, t, isLast){
     const groupLabel = m.g ? `Grupo ${m.g}` : getKoLabel(m.id);
     const teams_label = getMatchTeams(m);
     badge = `<span style="font-size:0.62rem;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:1.5px">⏳ ${groupLabel}</span>`;
-    if(remaining < 2*60*60*1000){
-      // Less than 2 hours: show live countdown
+    if(remaining <= 60*60*1000){
       counter = `<div style="font-size:1.1rem;font-weight:800;color:var(--accent);font-family:'Bebas Neue',sans-serif;letter-spacing:2px">${formatCD(remaining)}</div>`;
       sub = `${m.fecha} · ${m.hora}h (España)`;
     } else {
-      // More than 2 hours: show date + time only
-      counter = `<div style="font-size:0.85rem;font-weight:700;color:var(--accent)">${m.fecha} · ${m.hora}h (España)</div>`;
+      counter = `<div style="font-size:0.9rem;font-weight:700;color:var(--accent)">${m.fecha} · ${m.hora}h (España)</div>`;
       sub = '';
     }
   } else if(phase==='H1'){
@@ -1900,47 +1898,40 @@ function startCountdown(){
 
   function tick(){
     const now = new Date();
-    // Combine group stage + knockout matches
+
     const koMatches = (typeof FASE_FINAL !== 'undefined')
       ? FASE_FINAL.flatMap(fase => fase.partidos.map(p => ({
-          id: p.id,
-          g: '',
-          fecha: p.fecha,
-          hora: p.hora,
-          local: '',
-          visit: '',
-          _koLabel: fase.label
+          id: p.id, g: '', fecha: p.fecha, hora: p.hora,
+          local: '', visit: '', _koLabel: fase.label
         })))
       : [];
-    const sorted = [...CALENDARIO, ...koMatches]
+    const allMatches = [...CALENDARIO, ...koMatches]
       .sort((a,b)=>(parseMatchDate(a)||0)-(parseMatchDate(b)||0));
 
-    let blocks = [];
-    let foundNext = false;
+    let liveBlock = null;
+    let nextBlock  = null;
 
-    for(const m of sorted){
+    for(const m of allMatches){
       const kickoff = parseMatchDate(m);
       if(!kickoff) continue;
       const info = getMatchPhase(kickoff, now);
-      if(!info) continue;
-      if(info.phase === 'DONE') continue;
+      if(!info || info.phase === 'DONE') continue;
 
-      // For PRE phase, show all upcoming matches
       if(info.phase === 'PRE'){
-        blocks.push({m, phase:info.phase, t:info.t});
-        continue;
+        if(!nextBlock) nextBlock = {m, phase:info.phase, t:info.t};
+      } else {
+        if(!liveBlock) liveBlock = {m, phase:info.phase, t:info.t};
       }
-
-      blocks.push({m, phase:info.phase, t:info.t});
     }
 
-    if(!blocks.length){
-      widget.style.display = 'none';
-      return;
-    }
+    const blocks = [];
+    if(liveBlock) blocks.push(liveBlock);
+    if(nextBlock) blocks.push(nextBlock);
+
+    if(!blocks.length){ widget.style.display='none'; return; }
 
     widget.style.display = 'block';
-    teamsEl.innerHTML = blocks.map((b,i) => buildMatchHtml(b.m, b.phase, b.t, i===blocks.length-1)).join('');
+    teamsEl.innerHTML = blocks.map((b,i)=>buildMatchHtml(b.m,b.phase,b.t,i===blocks.length-1)).join('');
     countEl.textContent = '';
     infoEl.textContent  = '';
   }
