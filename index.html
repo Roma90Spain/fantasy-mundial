@@ -370,10 +370,10 @@ ul.ranking{list-style:none}
   </div>
   <div class="live-badge"><div class="live-dot"></div>EN JUEGO · FASE DE GRUPOS</div>
   <div id="lastImportedBadge" style="display:none;margin-top:8px;font-size:0.68rem;color:rgba(220,232,244,0.5);letter-spacing:0.5px"></div>
-  <div id="nextMatchWidget" style="margin-top:10px;display:none">
-    <div id="nextMatchTeams" style="font-size:0.82rem;font-weight:700;color:var(--text);margin-bottom:3px"></div>
-    <div id="nextMatchCountdown" style="font-size:1.1rem;font-weight:800;color:var(--accent);font-family:'Bebas Neue',sans-serif;letter-spacing:2px"></div>
-    <div id="nextMatchInfo" style="font-size:0.65rem;color:rgba(220,232,244,0.45);margin-top:2px"></div>
+  <div id="nextMatchWidget" style="margin-top:10px;display:none;text-align:center">
+    <div id="nextMatchTeams"></div>
+    <div id="nextMatchCountdown" style="display:none"></div>
+    <div id="nextMatchInfo" style="display:none"></div>
   </div>
 </div>
 <div class="container">
@@ -547,8 +547,8 @@ const CALENDARIO = [
   {g:"J",j:2,local:"Austria",visit:"Jordania",fecha:"16 Jun",hora:"06:00",id:"J2"},
   {g:"K",j:1,local:"Portugal",visit:"RD Congo",fecha:"17 Jun",hora:"19:00",id:"K1"},
   {g:"L",j:1,local:"Inglaterra",visit:"Croacia",fecha:"17 Jun",hora:"22:00",id:"L1"},
-  {g:"L",j:2,local:"Ghana",visit:"Panamá",fecha:"17 Jun",hora:"01:00",id:"L2"},
-  {g:"K",j:2,local:"Uzbekistán",visit:"Colombia",fecha:"17 Jun",hora:"04:00",id:"K2"},
+  {g:"L",j:2,local:"Ghana",visit:"Panamá",fecha:"18 Jun",hora:"01:00",id:"L2"},
+  {g:"K",j:2,local:"Uzbekistán",visit:"Colombia",fecha:"18 Jun",hora:"04:00",id:"K2"},
   // JORNADA 2
   {g:"A",j:3,local:"Rep. Checa",visit:"Sudáfrica",fecha:"18 Jun",hora:"18:00",id:"A3"},
   {g:"B",j:3,local:"Suiza",visit:"Bosnia y Herz.",fecha:"18 Jun",hora:"21:00",id:"B3"},
@@ -1749,57 +1749,63 @@ function renderTablaGrupos(){
 }
 
 // ===== PRÓXIMO PARTIDO / CUENTA ATRÁS =====
-function getNextMatch(){
-  // Parse each CALENDARIO entry and find the next unplayed match
-  // Dates in format "17 Jun", "18 Jun" etc, hora "21:00"
-  // We need to map to 2026 dates in Spain timezone (CEST = UTC+2)
-  const monthMap = {
-    'Jun': 5, 'Jul': 6  // 0-indexed months
-  };
+const MONTH_MAP = {'Jun':5,'Jul':6};
+const MATCH_DURATION_MS = 2 * 60 * 60 * 1000; // 2 horas
 
-  const now = new Date();
-
-  let next = null;
-  let nextDate = null;
-
-  CALENDARIO.forEach(m => {
-    // Skip already played (have result)
-    if(RESULTADOS[m.id]) return;
-
-    const parts = m.fecha.split(' ');
-    const day = parseInt(parts[0]);
-    const month = monthMap[parts[1]];
-    if(month === undefined) return;
-
-    const [hh, mm] = m.hora.split(':').map(Number);
-
-    // Build date in CEST (UTC+2) — use UTC and add offset
-    // If hora is < 12 it's probably early morning = next calendar day in Spain
-    let year = 2026;
-    const matchDate = new Date(Date.UTC(year, month, day, hh - 2, mm)); // CEST to UTC
-
-    if(matchDate > now){
-      if(!nextDate || matchDate < nextDate){
-        nextDate = matchDate;
-        next = m;
-      }
-    }
-  });
-
-  return {match: next, date: nextDate};
+function parseMatchDate(m){
+  const parts = m.fecha.split(' ');
+  const day = parseInt(parts[0]);
+  const month = MONTH_MAP[parts[1]];
+  if(month === undefined) return null;
+  const [hh, mm] = m.hora.split(':').map(Number);
+  // CEST = UTC+2, so subtract 2h to get UTC
+  return new Date(Date.UTC(2026, month, day, hh - 2, mm));
 }
 
-function formatCountdown(ms){
-  if(ms <= 0) return 'EN JUEGO';
+function getMatchStatus(){
+  const now = new Date();
+  let liveMatch = null, liveStart = null;
+  let nextMatch = null, nextDate = null;
+
+  // Sort CALENDARIO by date
+  const sorted = [...CALENDARIO].sort((a,b)=>{
+    const da = parseMatchDate(a), db = parseMatchDate(b);
+    return da - db;
+  });
+
+  for(const m of sorted){
+    const start = parseMatchDate(m);
+    if(!start) continue;
+    const end = new Date(start.getTime() + MATCH_DURATION_MS);
+
+    if(now >= start && now < end){
+      // Match is currently live
+      if(!liveMatch){ liveMatch = m; liveStart = start; }
+    } else if(now < start){
+      // Future match
+      if(!nextMatch){ nextMatch = m; nextDate = start; }
+    }
+  }
+
+  return {liveMatch, liveStart, nextMatch, nextDate};
+}
+
+function formatCountdown(ms, short=false){
+  if(ms <= 0) return '00:00';
   const totalSec = Math.floor(ms / 1000);
   const days = Math.floor(totalSec / 86400);
   const hours = Math.floor((totalSec % 86400) / 3600);
   const mins = Math.floor((totalSec % 3600) / 60);
   const secs = totalSec % 60;
+  if(days > 0) return `${days}D ${String(hours).padStart(2,'0')}H ${String(mins).padStart(2,'0')}M`;
+  if(hours > 0) return `${String(hours).padStart(2,'0')}H ${String(mins).padStart(2,'0')}M ${String(secs).padStart(2,'0')}S`;
+  return `${String(mins).padStart(2,'0')}M ${String(secs).padStart(2,'0')}S`;
+}
 
-  if(days > 0) return `${days}d ${String(hours).padStart(2,'0')}h ${String(mins).padStart(2,'0')}m`;
-  if(hours > 0) return `${String(hours).padStart(2,'0')}h ${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s`;
-  return `${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s`;
+function formatElapsed(ms){
+  const totalSec = Math.floor(ms / 1000);
+  const mins = Math.floor(totalSec / 60);
+  return `${mins}'`;
 }
 
 let countdownInterval = null;
@@ -1811,19 +1817,50 @@ function startCountdown(){
   const infoEl = document.getElementById('nextMatchInfo');
 
   function tick(){
-    const {match, date} = getNextMatch();
-    if(!match){
+    const now = new Date();
+    const {liveMatch, liveStart, nextMatch, nextDate} = getMatchStatus();
+
+    if(!liveMatch && !nextMatch){
       widget.style.display = 'none';
       return;
     }
-    const now = new Date();
-    const diff = date - now;
-    const fL = FLAGS[match.local] || '';
-    const fV = FLAGS[match.visit] || '';
-    teamsEl.innerHTML = `${fL} ${match.local} <span style="color:var(--muted);font-size:0.75rem">vs</span> ${match.visit} ${fV}`;
-    countEl.textContent = formatCountdown(diff);
-    infoEl.textContent = `Grupo ${match.g} · ${match.fecha} · ${match.hora}h (España)`;
+
     widget.style.display = 'block';
+    let html = '';
+
+    // LIVE match block
+    if(liveMatch){
+      const elapsed = now - liveStart;
+      const remaining = MATCH_DURATION_MS - elapsed;
+      const fL = FLAGS[liveMatch.local]||'';
+      const fV = FLAGS[liveMatch.visit]||'';
+      html += `<div style="margin-bottom:${nextMatch?'10px':'0'}">
+        <div style="display:flex;align-items:center;gap:6px;justify-content:center;margin-bottom:3px">
+          <span style="background:#cc0000;border-radius:50%;width:7px;height:7px;display:inline-block;animation:blink 1s infinite;flex-shrink:0"></span>
+          <span style="font-size:0.65rem;font-weight:800;color:#ff4444;letter-spacing:1.5px;text-transform:uppercase">EN JUEGO</span>
+          <span style="font-size:0.72rem;color:#ff8888;font-weight:700">${formatElapsed(elapsed)}</span>
+        </div>
+        <div style="font-size:0.88rem;font-weight:700;color:var(--text)">${fL} ${liveMatch.local} <span style="color:var(--muted);font-size:0.72rem">vs</span> ${liveMatch.visit} ${fV}</div>
+        <div style="font-size:0.65rem;color:rgba(220,232,244,0.4);margin-top:1px">Grupo ${liveMatch.g} · ${liveMatch.hora}h</div>
+      </div>`;
+    }
+
+    // NEXT match block
+    if(nextMatch){
+      const diff = nextDate - now;
+      const fL = FLAGS[nextMatch.local]||'';
+      const fV = FLAGS[nextMatch.visit]||'';
+      html += `<div style="${liveMatch?'border-top:1px solid rgba(255,255,255,0.06);padding-top:8px':''}">
+        <div style="font-size:0.62rem;color:rgba(220,232,244,0.4);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Próximo partido</div>
+        <div style="font-size:0.82rem;font-weight:700;color:var(--text);margin-bottom:2px">${fL} ${nextMatch.local} <span style="color:var(--muted);font-size:0.72rem">vs</span> ${nextMatch.visit} ${fV}</div>
+        <div style="font-size:1.05rem;font-weight:800;color:var(--accent);font-family:'Bebas Neue',sans-serif;letter-spacing:2px">${formatCountdown(diff)}</div>
+        <div style="font-size:0.62rem;color:rgba(220,232,244,0.4);margin-top:1px">Grupo ${nextMatch.g} · ${nextMatch.fecha} · ${nextMatch.hora}h (España)</div>
+      </div>`;
+    }
+
+    teamsEl.innerHTML = html;
+    countEl.textContent = '';
+    infoEl.textContent = '';
   }
 
   tick();
