@@ -370,6 +370,11 @@ ul.ranking{list-style:none}
   </div>
   <div class="live-badge"><div class="live-dot"></div>EN JUEGO · FASE DE GRUPOS</div>
   <div id="lastImportedBadge" style="display:none;margin-top:8px;font-size:0.68rem;color:rgba(220,232,244,0.5);letter-spacing:0.5px"></div>
+  <div id="nextMatchWidget" style="margin-top:10px;display:none">
+    <div id="nextMatchTeams" style="font-size:0.82rem;font-weight:700;color:var(--text);margin-bottom:3px"></div>
+    <div id="nextMatchCountdown" style="font-size:1.1rem;font-weight:800;color:var(--accent);font-family:'Bebas Neue',sans-serif;letter-spacing:2px"></div>
+    <div id="nextMatchInfo" style="font-size:0.65rem;color:rgba(220,232,244,0.45);margin-top:2px"></div>
+  </div>
 </div>
 <div class="container">
 
@@ -391,6 +396,7 @@ ul.ranking{list-style:none}
     <button class="btn" id="toggle11Btn" style="flex:1;background:#18081a;border-color:#3a1040;color:#e070ff;">⚽ 11 ideal</button>
   </div>
   <div class="update-bar">
+    <button class="btn" id="toggleTablaBtn" style="flex:1;background:#002200;border-color:#004400;color:#00cc44;">🏅 Grupos</button>
     <button class="btn" id="toggleCalBtn" style="flex:1;background:#080e20;border-color:#1a1a50;color:#9090ff;">📅 Calendario</button>
     <button class="btn" id="toggleStatsBtn" style="flex:1;background:#1a0808;border-color:#4a1010;color:#ffaaaa;">📊 Estadísticas</button>
   </div>
@@ -422,6 +428,11 @@ ul.ranking{list-style:none}
     </div>
     <div id="calContent"></div>
   </div>
+  <div class="panel" id="tablaPanel" style="display:none">
+    <div style="font-weight:700;font-size:0.95rem;margin-bottom:12px">🏅 Tabla de grupos</div>
+    <div id="tablaContent"></div>
+  </div>
+
   <div class="panel" id="statsPanel" style="display:none">
     <div style="font-weight:700;font-size:0.95rem;margin-bottom:10px">📊 Estadísticas de la peña</div>
     <div id="statsContent"></div>
@@ -598,7 +609,7 @@ function getFriendTotal(f){ return f.team.reduce((s,p)=>{ let pts=getScore(p.nam
 function getSorted(){ return [...DATA.friends].sort((a,b)=>getFriendTotal(b)-getFriendTotal(a)); }
 function setStatus(msg,err=false){ const s=document.getElementById('status'); s.textContent=msg; s.className='status'+(err?' error':''); }
 function closeAllPanels(){
-  ['topPanel','partidosPanel','knockoutPanel','searchPanel','panel11','calPanel','statsPanel','bootsPanel','glovesPanel']
+  ['topPanel','partidosPanel','knockoutPanel','searchPanel','panel11','calPanel','statsPanel','bootsPanel','glovesPanel','tablaPanel']
     .forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
 }
 function togglePanel(id){
@@ -1344,6 +1355,7 @@ document.getElementById('togglePartidosBtn').addEventListener('click',()=>{ togg
 document.getElementById('toggleKnockoutBtn').addEventListener('click',()=>{ togglePanel('knockoutPanel'); renderKnockout(); });
 document.getElementById('toggleSearchBtn').addEventListener('click',()=>{ togglePanel('searchPanel'); setTimeout(()=>document.getElementById('searchInput').focus(),100); });
 document.getElementById('toggle11Btn').addEventListener('click',()=>{ togglePanel('panel11'); render11(); });
+document.getElementById('toggleTablaBtn').addEventListener('click',()=>{ togglePanel('tablaPanel'); renderTablaGrupos(); });
 document.getElementById('toggleBootsBtn').addEventListener('click',()=>{ togglePanel('bootsPanel'); renderBoots(); });
 document.getElementById('toggleGlovesBtn').addEventListener('click',()=>{ togglePanel('glovesPanel'); renderGloves(); });
 document.getElementById('toggleCalBtn').addEventListener('click',()=>{
@@ -1621,6 +1633,204 @@ function closeAwardsModal(){
   document.getElementById('awardsModal').style.display='none';
 }
 
+// ===== TABLA DE GRUPOS =====
+function calcTablaGrupo(grupo){
+  const equipos = GRUPOS[grupo];
+  const tabla = {};
+  equipos.forEach(eq => {
+    tabla[eq] = {eq, pj:0, g:0, e:0, p:0, gf:0, gc:0, pts:0};
+  });
+
+  // Go through all matches of this group that have results
+  CALENDARIO.filter(m => m.g === grupo && RESULTADOS[m.id]).forEach(m => {
+    const res = RESULTADOS[m.id];
+    const parts = res.split('-');
+    if(parts.length !== 2) return;
+    const gl = parseInt(parts[0]);
+    const gv = parseInt(parts[1]);
+    if(isNaN(gl) || isNaN(gv)) return;
+
+    const local = m.local;
+    const visit = m.visit;
+    if(!tabla[local] || !tabla[visit]) return;
+
+    tabla[local].pj++; tabla[visit].pj++;
+    tabla[local].gf += gl; tabla[local].gc += gv;
+    tabla[visit].gf += gv; tabla[visit].gc += gl;
+
+    if(gl > gv){
+      tabla[local].g++; tabla[local].pts += 3;
+      tabla[visit].p++;
+    } else if(gl < gv){
+      tabla[visit].g++; tabla[visit].pts += 3;
+      tabla[local].p++;
+    } else {
+      tabla[local].e++; tabla[local].pts++;
+      tabla[visit].e++; tabla[visit].pts++;
+    }
+  });
+
+  return Object.values(tabla).sort((a,b) => {
+    if(b.pts !== a.pts) return b.pts - a.pts;
+    const dga = a.gf - a.gc, dgb = b.gf - b.gc;
+    if(dgb !== dga) return dgb - dga;
+    return b.gf - a.gf;
+  });
+}
+
+function renderTablaGrupos(){
+  const panel = document.getElementById('tablaContent');
+  const grupos = Object.keys(GRUPOS);
+
+  panel.innerHTML = grupos.map(g => {
+    const tabla = calcTablaGrupo(g);
+    const rows = tabla.map((t, i) => {
+      const dg = t.gf - t.gc;
+      const dgStr = dg > 0 ? `+${dg}` : `${dg}`;
+      // Classification colors: top 2 pass, 3rd playoff, 4th out
+      const bg = i < 2
+        ? 'rgba(0,180,80,0.12)' 
+        : i === 2 
+          ? 'rgba(240,180,0,0.08)' 
+          : 'rgba(255,60,60,0.06)';
+      const posIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '⚠️' : '❌';
+      const flag = FLAGS[t.eq] || '';
+      return `<tr style="background:${bg};border-bottom:1px solid rgba(255,255,255,0.05)">
+        <td style="padding:6px 4px;font-size:0.75rem">${posIcon}</td>
+        <td style="padding:6px 4px;font-size:0.82rem;font-weight:600">${flag} ${t.eq}</td>
+        <td style="padding:6px 4px;text-align:center;font-size:0.78rem;color:var(--muted)">${t.pj}</td>
+        <td style="padding:6px 4px;text-align:center;font-size:0.78rem;color:#4caf7d">${t.g}</td>
+        <td style="padding:6px 4px;text-align:center;font-size:0.78rem;color:var(--muted)">${t.e}</td>
+        <td style="padding:6px 4px;text-align:center;font-size:0.78rem;color:#ff6b6b">${t.p}</td>
+        <td style="padding:6px 4px;text-align:center;font-size:0.78rem">${t.gf}</td>
+        <td style="padding:6px 4px;text-align:center;font-size:0.78rem">${t.gc}</td>
+        <td style="padding:6px 4px;text-align:center;font-size:0.78rem;color:var(--muted)">${dgStr}</td>
+        <td style="padding:6px 4px;text-align:center;font-weight:800;font-size:0.9rem;color:var(--accent)">${t.pts}</td>
+      </tr>`;
+    }).join('');
+
+    // Count played matches
+    const jugados = CALENDARIO.filter(m => m.g === g && RESULTADOS[m.id]).length;
+    const total = CALENDARIO.filter(m => m.g === g).length;
+
+    return `<details style="background:rgba(5,14,6,0.9);border:1px solid var(--border);border-radius:12px;margin-bottom:8px;overflow:hidden">
+      <summary style="padding:10px 14px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:0.88rem">
+        <span>🏟️ Grupo ${g}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:0.7rem;color:var(--muted);font-weight:400">${jugados}/${total} partidos</span>
+          <span style="color:var(--muted);font-size:0.75rem">▼</span>
+        </div>
+      </summary>
+      <div style="padding:0 8px 10px">
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border)">
+              <th style="padding:4px 4px;font-size:0.65rem;color:var(--muted);font-weight:600;text-align:left" colspan="2">Equipo</th>
+              <th style="padding:4px 2px;font-size:0.65rem;color:var(--muted);font-weight:600;text-align:center">PJ</th>
+              <th style="padding:4px 2px;font-size:0.65rem;color:#4caf7d;font-weight:600;text-align:center">G</th>
+              <th style="padding:4px 2px;font-size:0.65rem;color:var(--muted);font-weight:600;text-align:center">E</th>
+              <th style="padding:4px 2px;font-size:0.65rem;color:#ff6b6b;font-weight:600;text-align:center">P</th>
+              <th style="padding:4px 2px;font-size:0.65rem;color:var(--muted);font-weight:600;text-align:center">GF</th>
+              <th style="padding:4px 2px;font-size:0.65rem;color:var(--muted);font-weight:600;text-align:center">GC</th>
+              <th style="padding:4px 2px;font-size:0.65rem;color:var(--muted);font-weight:600;text-align:center">DG</th>
+              <th style="padding:4px 2px;font-size:0.65rem;color:var(--accent);font-weight:600;text-align:center">Pts</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div style="margin-top:8px;font-size:0.65rem;color:var(--muted);display:flex;gap:12px">
+          <span>🥇🥈 Clasificados</span>
+          <span>⚠️ Repesca</span>
+          <span>❌ Eliminado</span>
+        </div>
+      </div>
+    </details>`;
+  }).join('');
+}
+
+// ===== PRÓXIMO PARTIDO / CUENTA ATRÁS =====
+function getNextMatch(){
+  // Parse each CALENDARIO entry and find the next unplayed match
+  // Dates in format "17 Jun", "18 Jun" etc, hora "21:00"
+  // We need to map to 2026 dates in Spain timezone (CEST = UTC+2)
+  const monthMap = {
+    'Jun': 5, 'Jul': 6  // 0-indexed months
+  };
+
+  const now = new Date();
+
+  let next = null;
+  let nextDate = null;
+
+  CALENDARIO.forEach(m => {
+    // Skip already played (have result)
+    if(RESULTADOS[m.id]) return;
+
+    const parts = m.fecha.split(' ');
+    const day = parseInt(parts[0]);
+    const month = monthMap[parts[1]];
+    if(month === undefined) return;
+
+    const [hh, mm] = m.hora.split(':').map(Number);
+
+    // Build date in CEST (UTC+2) — use UTC and add offset
+    // If hora is < 12 it's probably early morning = next calendar day in Spain
+    let year = 2026;
+    const matchDate = new Date(Date.UTC(year, month, day, hh - 2, mm)); // CEST to UTC
+
+    if(matchDate > now){
+      if(!nextDate || matchDate < nextDate){
+        nextDate = matchDate;
+        next = m;
+      }
+    }
+  });
+
+  return {match: next, date: nextDate};
+}
+
+function formatCountdown(ms){
+  if(ms <= 0) return 'EN JUEGO';
+  const totalSec = Math.floor(ms / 1000);
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+
+  if(days > 0) return `${days}d ${String(hours).padStart(2,'0')}h ${String(mins).padStart(2,'0')}m`;
+  if(hours > 0) return `${String(hours).padStart(2,'0')}h ${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s`;
+  return `${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s`;
+}
+
+let countdownInterval = null;
+
+function startCountdown(){
+  const widget = document.getElementById('nextMatchWidget');
+  const teamsEl = document.getElementById('nextMatchTeams');
+  const countEl = document.getElementById('nextMatchCountdown');
+  const infoEl = document.getElementById('nextMatchInfo');
+
+  function tick(){
+    const {match, date} = getNextMatch();
+    if(!match){
+      widget.style.display = 'none';
+      return;
+    }
+    const now = new Date();
+    const diff = date - now;
+    const fL = FLAGS[match.local] || '';
+    const fV = FLAGS[match.visit] || '';
+    teamsEl.innerHTML = `${fL} ${match.local} <span style="color:var(--muted);font-size:0.75rem">vs</span> ${match.visit} ${fV}`;
+    countEl.textContent = formatCountdown(diff);
+    infoEl.textContent = `Grupo ${match.g} · ${match.fecha} · ${match.hora}h (España)`;
+    widget.style.display = 'block';
+  }
+
+  tick();
+  if(countdownInterval) clearInterval(countdownInterval);
+  countdownInterval = setInterval(tick, 1000);
+}
+
 // ===== LOCALSTORAGE =====
 const LS_KEY = 'fantasyMundial2026_v2';
 
@@ -1676,6 +1886,7 @@ function updateLastImportedBadge(){
 const loadedFromLS = loadFromLS();
 renderRanking();
 updateLastImportedBadge();
+startCountdown();
 if(loadedFromLS) setStatus('✅ Datos restaurados');
 setTimeout(()=>setStatus(''),2500);
 </script>
