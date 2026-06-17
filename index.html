@@ -1215,9 +1215,8 @@ function koPickWinner(round, idx, slot){
   const newWinner = slot==='a'?m.a:m.b;
   m.winner = m.winner===newWinner ? "" : newWinner; // toggle
   koSetMatch(round, idx, m);
-
-  // If winner changes, clear downstream rounds that might have this match's loser
   clearDownstreamIfNeeded(round, idx);
+  saveToLS();
   renderKnockout();
 }
 
@@ -1300,6 +1299,8 @@ document.getElementById('resetBtn').addEventListener('click',()=>{
   if(!confirm('¿Resetear TODOS los puntos? Esta acción no se puede deshacer.')) return;
   Object.keys(DATA.playerBase).forEach(k=>DATA.playerBase[k]=0);
   DATA.historialPartidos={};
+  DATA.prevPositions={};
+  try{ localStorage.removeItem(LS_KEY); } catch(e){}
   renderRanking();
   setStatus('✅ Puntos reseteados');
 });
@@ -1315,6 +1316,7 @@ document.getElementById('importFile').addEventListener('change',function(){
       if(imported.playerBase) DATA.playerBase={...DATA.playerBase,...imported.playerBase};
       if(imported.historialPartidos) DATA.historialPartidos={...DATA.historialPartidos,...imported.historialPartidos};
       if(imported.knockout) DATA.knockout=imported.knockout;
+      saveToLS();
       renderRanking();
       setStatus('✅ Backup importado correctamente');
     } catch(err){ setStatus('❌ Error al importar: '+err.message,true); }
