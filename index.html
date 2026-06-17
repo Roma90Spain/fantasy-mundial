@@ -363,6 +363,7 @@ ul.ranking{list-style:none}
     <div class="host-card"><span>🇲🇽</span> MÉXICO</div>
   </div>
   <div class="live-badge"><div class="live-dot"></div>EN JUEGO · FASE DE GRUPOS</div>
+  <div id="lastImportedBadge" style="display:none;margin-top:8px;font-size:0.68rem;color:rgba(220,232,244,0.5);letter-spacing:0.5px"></div>
 </div>
 <div class="container">
 
@@ -810,6 +811,8 @@ document.getElementById('partidoImportBtn').addEventListener('click', function()
   snapSorted.forEach((f,i)=>{ DATA.prevPositions[f.name]=i; });
   DATA.historialPartidos[id]={local:partido.local,visitante:partido.visit,fecha:partido.fecha,jugadores};
   setStatus(`✅ ${jugadores.length} jugadores importados para ${partido.local} vs ${partido.visit}`);
+  saveToLS();
+  updateLastImportedBadge();
   renderRanking();
   renderPartidosPanel();
 });
@@ -1325,7 +1328,58 @@ document.getElementById('importFile').addEventListener('change',function(){
   this.value='';
 });
 
+// ===== LOCALSTORAGE =====
+const LS_KEY = 'fantasyMundial2026_v2';
+
+function saveToLS(){
+  try{ localStorage.setItem(LS_KEY, JSON.stringify({
+    playerBase: DATA.playerBase,
+    historialPartidos: DATA.historialPartidos,
+    prevPositions: DATA.prevPositions,
+    knockout: DATA.knockout||{}
+  })); } catch(e){ console.warn('LS save error',e); }
+}
+
+function loadFromLS(){
+  try{
+    const saved = localStorage.getItem(LS_KEY);
+    if(!saved) return false;
+    const parsed = JSON.parse(saved);
+    const lsCount = Object.keys(parsed.historialPartidos||{}).length;
+    const htmlCount = Object.keys(DATA.historialPartidos||{}).length;
+    if(lsCount >= htmlCount){
+      DATA.playerBase = {...DATA.playerBase, ...(parsed.playerBase||{})};
+      DATA.historialPartidos = parsed.historialPartidos || {};
+      DATA.prevPositions = parsed.prevPositions || {};
+      DATA.knockout = parsed.knockout || {};
+      return lsCount > htmlCount;
+    }
+    return false;
+  } catch(e){ return false; }
+}
+
+function getLastImported(){
+  const keys = Object.keys(DATA.historialPartidos||{});
+  if(!keys.length) return null;
+  // Last key added (maintain insertion order)
+  const lastId = keys[keys.length-1];
+  const h = DATA.historialPartidos[lastId];
+  return h ? `${h.local} vs ${h.visitante||''} · ${h.fecha}` : null;
+}
+
+function updateLastImportedBadge(){
+  const badge = document.getElementById('lastImportedBadge');
+  if(!badge) return;
+  const last = getLastImported();
+  badge.textContent = last ? `⚽ Último: ${last}` : '';
+  badge.style.display = last ? 'block' : 'none';
+}
+
 // ===== INIT =====
+const loadedFromLS = loadFromLS();
 renderRanking();
+updateLastImportedBadge();
+if(loadedFromLS) setStatus('✅ Datos restaurados');
+setTimeout(()=>setStatus(''),2500);
 </script>
 </body></html>
