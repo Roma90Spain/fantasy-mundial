@@ -3763,6 +3763,13 @@ function updateLastImportedBadge(){
 const loadedFromLS = loadFromLS();
 if(!DATA.resultados) DATA.resultados={};
 Object.assign(RESULTADOS, DATA.resultados);
+
+// Always start with all panels closed
+closeAllPanels();
+// Reset group select to default
+const gs = document.getElementById('grupoSelect');
+if(gs) gs.value = '';
+
 renderRankingAnimated();
 updateLastImportedBadge();
 startCountdown();
