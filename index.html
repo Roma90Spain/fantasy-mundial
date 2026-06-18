@@ -2558,9 +2558,18 @@ function renderStats(){
   const topPlayers=Object.entries(playerCount).sort((a,b)=>b[1]-a[1]).slice(0,10);
   const maxPC=topPlayers[0]?.[1]||1;
 
-  // Most represented nations
+  // Most represented nations — count unique players per nation across all teams
   const natCount={};
-  DATA.friends.forEach(f=>f.team.forEach(p=>{ const db=PLAYERS_DB[p.name]; if(db){ natCount[db[1]]=(natCount[db[1]]||0)+1; } }));
+  const natSeen={};
+  DATA.friends.forEach(f=>f.team.forEach(p=>{
+    const db=PLAYERS_DB[p.name];
+    if(db){
+      const nat=db[1];
+      if(!natSeen[nat]) natSeen[nat]=new Set();
+      natSeen[nat].add(p.name);
+    }
+  }));
+  Object.entries(natSeen).forEach(([nat,players])=>{ natCount[nat]=players.size; });
   const topNat=Object.entries(natCount).sort((a,b)=>b[1]-a[1]).slice(0,8);
 
   // Captain pts
