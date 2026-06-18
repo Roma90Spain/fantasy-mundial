@@ -347,6 +347,7 @@ ul.ranking{list-style:none}
 }
 .ko-team-btn.winner{background:#0e2a1a;border-color:var(--accent2);color:var(--accent2)}
 .ko-team-btn.loser{opacity:0.35}
+@keyframes slideIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
 .pos-arrow{font-size:0.68rem;font-weight:800;padding:2px 6px;border-radius:6px;flex-shrink:0;min-width:32px;text-align:center}
 .pos-arrow.up{color:#4caf7d;background:rgba(76,175,125,0.15);border:1px solid rgba(76,175,125,0.2)}
 .pos-arrow.down{color:#ff6b6b;background:rgba(255,107,107,0.15);border:1px solid rgba(255,107,107,0.2)}
@@ -407,6 +408,10 @@ ul.ranking{list-style:none}
   <div class="update-bar">
     <button class="btn" id="toggleTablaBtn" style="flex:1;background:#002200;border-color:#004400;color:#00cc44;">🏅 Grupos</button>
     <button class="btn" id="toggleCalBtn" style="flex:1;background:#080e20;border-color:#1a1a50;color:#9090ff;">📅 Calendario</button>
+  </div>
+  <div class="update-bar">
+    <button class="btn" id="toggleEvoBtn" style="flex:1;background:#1a0a2e;border-color:#4a1a7e;color:#cc88ff;">📈 Evolución</button>
+    <button class="btn" id="shareCardBtn" style="flex:1;background:#1a1500;border-color:#4a3800;color:#ffd700;">🖼️ Compartir</button>
     <button class="btn" id="toggleStatsBtn" style="flex:1;background:#1a0808;border-color:#4a1010;color:#ffaaaa;">📊 Estadísticas</button>
   </div>
   <div class="update-bar">
@@ -1630,6 +1635,15 @@ ul.ranking{list-style:none}
     </details></div>
   </div>
 
+  <div class="panel" id="evoPanel" style="display:none">
+    <div style="font-weight:700;font-size:0.95rem;margin-bottom:4px">📈 Evolución de la clasificación</div>
+    <div style="font-size:0.72rem;color:var(--muted);margin-bottom:10px">Puntos acumulados partido a partido</div>
+    <div id="evoFilters" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px"></div>
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+      <canvas id="evoChart" style="min-width:500px;height:280px"></canvas>
+    </div>
+  </div>
+
   <div class="panel" id="statsPanel" style="display:none">
     <div style="font-weight:700;font-size:0.95rem;margin-bottom:10px">📊 Estadísticas de la peña</div>
     <div id="statsContent"></div>
@@ -2003,7 +2017,7 @@ function getFriendTotal(f){ return f.team.reduce((s,p)=>{ let pts=getScore(p.nam
 function getSorted(){ return [...DATA.friends].sort((a,b)=>getFriendTotal(b)-getFriendTotal(a)); }
 function setStatus(msg,err=false){ const s=document.getElementById('status'); s.textContent=msg; s.className='status'+(err?' error':''); }
 function closeAllPanels(){
-  ['topPanel','partidosPanel','knockoutPanel','searchPanel','panel11','calPanel','statsPanel','bootsPanel','glovesPanel','tablaPanel']
+  ['topPanel','partidosPanel','knockoutPanel','searchPanel','panel11','calPanel','statsPanel','bootsPanel','glovesPanel','tablaPanel','evoPanel']
     .forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
 }
 function togglePanel(id){
@@ -2316,7 +2330,7 @@ document.getElementById('partidoImportBtn').addEventListener('click', function()
   updateLastImportedBadge();
 
   // Refrescar todo lo que esté abierto
-  renderRanking();
+  renderRankingAnimated();
   renderPartidosPanel();
 
   // Tabla de grupos
@@ -2791,6 +2805,8 @@ document.getElementById('toggleKnockoutBtn').addEventListener('click',()=>{ togg
 document.getElementById('toggleSearchBtn').addEventListener('click',()=>{ togglePanel('searchPanel'); setTimeout(()=>document.getElementById('searchInput').focus(),100); });
 document.getElementById('toggle11Btn').addEventListener('click',()=>{ togglePanel('panel11'); render11(); });
 document.getElementById('toggleTablaBtn').addEventListener('click',()=>{ togglePanel('tablaPanel'); renderTablaGrupos(); });
+document.getElementById('toggleEvoBtn').addEventListener('click',()=>{ togglePanel('evoPanel'); renderEvoChart(); });
+document.getElementById('shareCardBtn').addEventListener('click', shareCard);
 document.getElementById('toggleBootsBtn').addEventListener('click',()=>{ togglePanel('bootsPanel'); renderBoots(); });
 document.getElementById('toggleGlovesBtn').addEventListener('click',()=>{ togglePanel('glovesPanel'); renderGloves(); });
 document.getElementById('toggleCalBtn').addEventListener('click',()=>{
@@ -3375,6 +3391,302 @@ function startCountdown(){
   countdownInterval = setInterval(tick, 1000);
 }
 
+// ===== FEATURE 4: GRÁFICO DE EVOLUCIÓN =====
+const EVO_COLORS = [
+  '#f0c040','#4caf7d','#ff6b6b','#7ab8ff','#ff9f40',
+  '#cc88ff','#00e5ff','#ff6699','#a0e040','#ffcc44',
+  '#88ccff','#ff8844','#44ffcc','#ff44aa','#88ff88',
+  '#ffaa88','#88aaff','#ffff44'
+];
+
+let evoSelectedFriends = new Set();
+
+function buildEvoData(){
+  const hist = DATA.historialPartidos;
+  const cal = CALENDARIO;
+  const imported = cal.filter(m => hist[m.id]).map(m => m.id);
+  
+  const running = {};
+  Object.keys(DATA.playerBase).forEach(k => running[k] = 0);
+  
+  const labels = [];
+  const series = {}; // name -> [pts after each match]
+  DATA.friends.forEach(f => series[f.name] = []);
+  
+  imported.forEach(mid => {
+    const h = hist[mid];
+    h.jugadores.forEach(j => {
+      running[j.nombre] = (running[j.nombre]||0) + j.pts;
+    });
+    const partido = cal.find(m => m.id === mid);
+    labels.push(`${partido ? partido.local.substring(0,3)+'-'+partido.visit.substring(0,3) : mid}`);
+    DATA.friends.forEach(f => {
+      const total = f.team.reduce((s,p) => {
+        const pts = running[p.name]||0;
+        return s + pts*(p.captain?2:1);
+      }, 0);
+      series[f.name].push(total);
+    });
+  });
+  
+  return {labels, series};
+}
+
+function renderEvoChart(){
+  const {labels, series} = buildEvoData();
+  
+  // Build filter buttons
+  const filtersEl = document.getElementById('evoFilters');
+  if(!filtersEl.children.length){
+    evoSelectedFriends = new Set(DATA.friends.map(f=>f.name));
+    DATA.friends.forEach((f,i) => {
+      const btn = document.createElement('button');
+      btn.textContent = f.name;
+      btn.style.cssText = `padding:3px 8px;border-radius:12px;border:1px solid ${EVO_COLORS[i%EVO_COLORS.length]};background:${EVO_COLORS[i%EVO_COLORS.length]}33;color:${EVO_COLORS[i%EVO_COLORS.length]};font-size:0.7rem;cursor:pointer;font-weight:600`;
+      btn.onclick = () => {
+        if(evoSelectedFriends.has(f.name)){
+          if(evoSelectedFriends.size > 1){ evoSelectedFriends.delete(f.name); btn.style.opacity='0.35'; }
+        } else {
+          evoSelectedFriends.add(f.name); btn.style.opacity='1';
+        }
+        drawEvoCanvas(labels, series);
+      };
+      filtersEl.appendChild(btn);
+    });
+  }
+  
+  drawEvoCanvas(labels, series);
+}
+
+function drawEvoCanvas(labels, series){
+  const canvas = document.getElementById('evoChart');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio||1;
+  const W = canvas.offsetWidth||500;
+  const H = 280;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  canvas.style.width = W+'px'; canvas.style.height = H+'px';
+  ctx.scale(dpr,dpr);
+  
+  const PAD = {top:10, right:10, bottom:40, left:36};
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top - PAD.bottom;
+  
+  // Background
+  ctx.fillStyle = 'rgba(5,14,6,0.95)';
+  ctx.fillRect(0,0,W,H);
+  
+  // Get max value
+  let maxVal = 0;
+  DATA.friends.forEach(f => {
+    if(!evoSelectedFriends.has(f.name)) return;
+    (series[f.name]||[]).forEach(v => { if(v>maxVal) maxVal=v; });
+  });
+  maxVal = Math.ceil(maxVal/50)*50 || 100;
+  
+  const n = labels.length;
+  if(!n) return;
+  
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  for(let i=0;i<=4;i++){
+    const y = PAD.top + cH*(1-i/4);
+    ctx.beginPath(); ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+cW,y); ctx.stroke();
+    ctx.fillStyle = 'rgba(200,200,200,0.4)';
+    ctx.font = '9px Inter,sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(Math.round(maxVal*i/4), PAD.left-4, y+3);
+  }
+  
+  // X labels (show every other if too many)
+  ctx.fillStyle = 'rgba(200,200,200,0.4)';
+  ctx.font = '8px Inter,sans-serif';
+  ctx.textAlign = 'center';
+  const step = n > 12 ? 2 : 1;
+  labels.forEach((l,i) => {
+    if(i%step!==0) return;
+    const x = PAD.left + (i/(n-1||1))*cW;
+    ctx.fillText(l, x, H-PAD.bottom+14);
+  });
+  
+  // Lines
+  DATA.friends.forEach((f,fi) => {
+    if(!evoSelectedFriends.has(f.name)) return;
+    const data = series[f.name]||[];
+    if(!data.length) return;
+    const color = EVO_COLORS[fi%EVO_COLORS.length];
+    
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    data.forEach((v,i) => {
+      const x = PAD.left + (i/(n-1||1))*cW;
+      const y = PAD.top + cH*(1-v/maxVal);
+      i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+    
+    // Last point dot + label
+    const lastV = data[data.length-1];
+    const lastX = PAD.left + cW;
+    const lastY = PAD.top + cH*(1-lastV/maxVal);
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(lastX,lastY,3,0,Math.PI*2); ctx.fill();
+  });
+}
+
+// ===== FEATURE 9: ANIMACIONES DE POSICIÓN =====
+let prevRankOrder = [];
+
+function renderRankingAnimated(){
+  const sorted = getSorted();
+  const ul = document.getElementById('ranking');
+  
+  // Check if order changed
+  const newOrder = sorted.map(f=>f.name);
+  const changed = JSON.stringify(newOrder) !== JSON.stringify(prevRankOrder);
+  prevRankOrder = newOrder;
+  
+  ul.innerHTML='';
+  sorted.forEach((f,i)=>{
+    const total=getFriendTotal(f);
+    const li=document.createElement('li');
+    li.className='friend';
+    const rc=rankClass(i);
+    const rl=rankLabel(i);
+    
+    let arrow='';
+    if(DATA.prevPositions && DATA.prevPositions[f.name]!==undefined){
+      const prev=DATA.prevPositions[f.name];
+      const diff=prev-i;
+      if(diff>0) arrow=`<span class="pos-arrow up">▲${diff}</span>`;
+      else if(diff<0) arrow=`<span class="pos-arrow down">▼${Math.abs(diff)}</span>`;
+    }
+    
+    // Animate if changed
+    if(changed){
+      li.style.animation='slideIn 0.4s ease forwards';
+      li.style.animationDelay=(i*0.05)+'s';
+      li.style.opacity='0';
+    }
+    
+    li.innerHTML=`<button class="friend-head" onclick="toggleRoster(this)">
+      <div class="rank ${rc}">${rl}</div>
+      <div class="friend-name">${f.name}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+        ${arrow}
+        <div class="friend-score">${total} pts</div>
+      </div>
+      <div class="chevron">▼</div>
+    </button>
+    <div class="roster"><div class="roster-inner">${buildRoster(f)}</div></div>`;
+    ul.appendChild(li);
+  });
+}
+
+// ===== FEATURE 10: COMPARTIR TARJETA =====
+function generateShareCard(){
+  const sorted = getSorted();
+  const canvas = document.createElement('canvas');
+  const W=480, H=Math.min(sorted.length*52+120, 900);
+  const dpr = window.devicePixelRatio||2;
+  canvas.width=W*dpr; canvas.height=H*dpr;
+  const ctx=canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+  
+  // Background gradient
+  const grad = ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#071a09');
+  grad.addColorStop(1,'#040a05');
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,W,H);
+  
+  // Header
+  ctx.fillStyle='#f0c040';
+  ctx.font='bold 28px Bebas Neue,Arial';
+  ctx.textAlign='center';
+  ctx.fillText('FANTASY MUNDIAL 2026',W/2,44);
+  
+  ctx.fillStyle='rgba(240,192,64,0.5)';
+  ctx.font='13px Inter,Arial';
+  ctx.fillText('Clasificación · '+new Date().toLocaleDateString('es-ES'),W/2,64);
+  
+  // Separator
+  ctx.strokeStyle='rgba(240,192,64,0.3)';
+  ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(20,74); ctx.lineTo(W-20,74); ctx.stroke();
+  
+  const medals=['🥇','🥈','🥉'];
+  sorted.forEach((f,i)=>{
+    const total=getFriendTotal(f);
+    const y=90+i*52;
+    if(y+50>H) return;
+    
+    // Row bg
+    ctx.fillStyle=i===0?'rgba(240,192,64,0.08)':i===1?'rgba(192,192,192,0.05)':i===2?'rgba(205,127,50,0.05)':'rgba(255,255,255,0.02)';
+    ctx.beginPath();
+    ctx.roundRect(10,y,W-20,44,8);
+    ctx.fill();
+    
+    // Position
+    ctx.fillStyle=i<3?'#f0c040':'rgba(200,220,244,0.5)';
+    ctx.font=i<3?'bold 18px Arial':'14px Arial';
+    ctx.textAlign='left';
+    ctx.fillText(i<3?medals[i]:`${i+1}.`,20,y+28);
+    
+    // Name
+    ctx.fillStyle='#dce8f4';
+    ctx.font='bold 15px Inter,Arial';
+    ctx.fillText(f.name,54,y+28);
+    
+    // Pts
+    ctx.fillStyle='#f0c040';
+    ctx.font='bold 17px Inter,Arial';
+    ctx.textAlign='right';
+    ctx.fillText(total+' pts',W-20,y+28);
+    
+    // Arrow
+    if(DATA.prevPositions&&DATA.prevPositions[f.name]!==undefined){
+      const diff=DATA.prevPositions[f.name]-i;
+      if(diff>0){ ctx.fillStyle='#4caf7d'; ctx.font='11px Arial'; ctx.fillText('▲'+diff,W-70,y+28); }
+      else if(diff<0){ ctx.fillStyle='#ff6b6b'; ctx.font='11px Arial'; ctx.fillText('▼'+Math.abs(diff),W-70,y+28); }
+    }
+  });
+  
+  // Footer
+  ctx.fillStyle='rgba(240,192,64,0.3)';
+  ctx.font='11px Inter,Arial';
+  ctx.textAlign='center';
+  ctx.fillText('roma90spain.github.io/fantasy-mundial',W/2,H-10);
+  
+  return canvas;
+}
+
+function shareCard(){
+  const canvas = generateShareCard();
+  canvas.toBlob(blob=>{
+    const url = URL.createObjectURL(blob);
+    if(navigator.share && navigator.canShare && navigator.canShare({files:[new File([blob],'clasificacion.png',{type:'image/png'})]})){
+      navigator.share({
+        title:'Fantasy Mundial 2026',
+        files:[new File([blob],'clasificacion.png',{type:'image/png'})]
+      }).catch(()=>downloadCard(url));
+    } else {
+      downloadCard(url);
+    }
+  },'image/png');
+}
+
+function downloadCard(url){
+  const a=document.createElement('a');
+  a.href=url; a.download='fantasy-mundial-clasificacion.png';
+  a.click();
+  setStatus('✅ Tarjeta descargada');
+}
+
+
 // ===== LOCALSTORAGE =====
 const LS_KEY = 'fantasyMundial2026_v3';
 
@@ -3440,7 +3752,7 @@ function updateLastImportedBadge(){
 const loadedFromLS = loadFromLS();
 if(!DATA.resultados) DATA.resultados={};
 Object.assign(RESULTADOS, DATA.resultados);
-renderRanking();
+renderRankingAnimated();
 updateLastImportedBadge();
 startCountdown();
 if(loadedFromLS) setStatus('✅ Datos restaurados');
