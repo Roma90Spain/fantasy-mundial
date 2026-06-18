@@ -3598,78 +3598,80 @@ function renderRankingAnimated(){
 // ===== FEATURE 10: COMPARTIR TARJETA =====
 function generateShareCard(){
   const sorted = getSorted();
-  const canvas = document.createElement('canvas');
-  const W=480, H=Math.min(sorted.length*52+120, 900);
+  const n = sorted.length;
+  const ROW = 40;        // row height
+  const HEADER = 90;     // header height
+  const FOOTER = 24;
+  const W = 480;
+  const H = HEADER + n*ROW + FOOTER + 10;
   const dpr = window.devicePixelRatio||2;
+  const canvas = document.createElement('canvas');
   canvas.width=W*dpr; canvas.height=H*dpr;
   const ctx=canvas.getContext('2d');
   ctx.scale(dpr,dpr);
-  
-  // Background gradient
-  const grad = ctx.createLinearGradient(0,0,0,H);
-  grad.addColorStop(0,'#071a09');
-  grad.addColorStop(1,'#040a05');
-  ctx.fillStyle=grad;
-  ctx.fillRect(0,0,W,H);
-  
+
+  // Background
+  const grad=ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#071a09'); grad.addColorStop(1,'#040a05');
+  ctx.fillStyle=grad; ctx.fillRect(0,0,W,H);
+
   // Header
   ctx.fillStyle='#f0c040';
-  ctx.font='bold 28px Bebas Neue,Arial';
+  ctx.font='bold 26px Bebas Neue,Arial';
   ctx.textAlign='center';
-  ctx.fillText('FANTASY MUNDIAL 2026',W/2,44);
-  
+  ctx.fillText('FANTASY MUNDIAL 2026',W/2,36);
   ctx.fillStyle='rgba(240,192,64,0.5)';
-  ctx.font='13px Inter,Arial';
-  ctx.fillText('Clasificación · '+new Date().toLocaleDateString('es-ES'),W/2,64);
-  
-  // Separator
-  ctx.strokeStyle='rgba(240,192,64,0.3)';
+  ctx.font='12px Inter,Arial';
+  ctx.fillText('Clasificación · '+new Date().toLocaleDateString('es-ES'),W/2,54);
+  ctx.strokeStyle='rgba(240,192,64,0.25)';
   ctx.lineWidth=1;
-  ctx.beginPath(); ctx.moveTo(20,74); ctx.lineTo(W-20,74); ctx.stroke();
-  
-  const medals=['🥇','🥈','🥉'];
+  ctx.beginPath(); ctx.moveTo(20,64); ctx.lineTo(W-20,64); ctx.stroke();
+
+  // Rows
   sorted.forEach((f,i)=>{
     const total=getFriendTotal(f);
-    const y=90+i*52;
-    if(y+50>H) return;
-    
+    const y=HEADER+i*ROW;
+
     // Row bg
-    ctx.fillStyle=i===0?'rgba(240,192,64,0.08)':i===1?'rgba(192,192,192,0.05)':i===2?'rgba(205,127,50,0.05)':'rgba(255,255,255,0.02)';
-    ctx.beginPath();
-    ctx.roundRect(10,y,W-20,44,8);
-    ctx.fill();
-    
-    // Position
-    ctx.fillStyle=i<3?'#f0c040':'rgba(200,220,244,0.5)';
-    ctx.font=i<3?'bold 18px Arial':'14px Arial';
+    ctx.fillStyle=i===0?'rgba(240,192,64,0.1)':i===1?'rgba(200,200,200,0.05)':i===2?'rgba(205,127,50,0.06)':i%2===0?'rgba(255,255,255,0.02)':'rgba(0,0,0,0.0)';
+    ctx.beginPath(); ctx.roundRect(8,y+2,W-16,ROW-2,6); ctx.fill();
+
+    // Position badge
+    const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':null;
     ctx.textAlign='left';
-    ctx.fillText(i<3?medals[i]:`${i+1}.`,20,y+28);
-    
+    if(medal){
+      ctx.font='16px Arial'; ctx.fillText(medal,14,y+ROW-10);
+    } else {
+      ctx.fillStyle='rgba(180,200,220,0.45)';
+      ctx.font='12px Inter,Arial';
+      ctx.fillText(`${i+1}.`,16,y+ROW-10);
+    }
+
     // Name
     ctx.fillStyle='#dce8f4';
-    ctx.font='bold 15px Inter,Arial';
-    ctx.fillText(f.name,54,y+28);
-    
-    // Pts
-    ctx.fillStyle='#f0c040';
-    ctx.font='bold 17px Inter,Arial';
-    ctx.textAlign='right';
-    ctx.fillText(total+' pts',W-20,y+28);
-    
+    ctx.font=`bold 14px Inter,Arial`;
+    ctx.fillText(f.name,46,y+ROW-10);
+
     // Arrow
     if(DATA.prevPositions&&DATA.prevPositions[f.name]!==undefined){
       const diff=DATA.prevPositions[f.name]-i;
-      if(diff>0){ ctx.fillStyle='#4caf7d'; ctx.font='11px Arial'; ctx.fillText('▲'+diff,W-70,y+28); }
-      else if(diff<0){ ctx.fillStyle='#ff6b6b'; ctx.font='11px Arial'; ctx.fillText('▼'+Math.abs(diff),W-70,y+28); }
+      if(diff>0){ ctx.fillStyle='#4caf7d'; ctx.font='10px Arial'; ctx.fillText('▲'+diff,W-100,y+ROW-10); }
+      else if(diff<0){ ctx.fillStyle='#ff6b6b'; ctx.font='10px Arial'; ctx.fillText('▼'+Math.abs(diff),W-100,y+ROW-10); }
     }
+
+    // Pts
+    ctx.fillStyle='#f0c040';
+    ctx.font='bold 14px Inter,Arial';
+    ctx.textAlign='right';
+    ctx.fillText(total+' pts',W-14,y+ROW-10);
   });
-  
+
   // Footer
-  ctx.fillStyle='rgba(240,192,64,0.3)';
-  ctx.font='11px Inter,Arial';
+  ctx.fillStyle='rgba(240,192,64,0.25)';
+  ctx.font='10px Inter,Arial';
   ctx.textAlign='center';
-  ctx.fillText('roma90spain.github.io/fantasy-mundial',W/2,H-10);
-  
+  ctx.fillText('roma90spain.github.io/fantasy-mundial',W/2,H-6);
+
   return canvas;
 }
 
