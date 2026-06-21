@@ -3252,10 +3252,40 @@ function buildShareText(){
 
 // ===== SAVE =====
 function generateSaveableHtml(){
-  return document.documentElement.outerHTML.replace(
-    /let DATA = \{[^;]*\};/,
-    `let DATA = ${JSON.stringify(DATA)};`
-  );
+  const html = document.documentElement.outerHTML;
+  const marker = 'let DATA = ';
+  const startIdx = html.indexOf(marker);
+  if(startIdx === -1){
+    console.error('No se encontró "let DATA = " en el documento; no se pudo regenerar el HTML guardable.');
+    return null;
+  }
+  const jsonStart = startIdx + marker.length;
+  // Escanea el objeto JSON contando llaves (respetando cadenas de texto) en vez de usar una
+  // expresión regular frágil que se rompía si aparecía un punto y coma dentro de los datos.
+  let depth = 0, inString = false, escaped = false, i = jsonStart, endIdx = -1;
+  for(; i < html.length; i++){
+    const ch = html[i];
+    if(inString){
+      if(escaped){ escaped = false; }
+      else if(ch === '\\'){ escaped = true; }
+      else if(ch === '"'){ inString = false; }
+      continue;
+    }
+    if(ch === '"'){ inString = true; }
+    else if(ch === '{'){ depth++; }
+    else if(ch === '}'){
+      depth--;
+      if(depth === 0){ endIdx = i + 1; break; }
+    }
+  }
+  if(endIdx === -1){
+    console.error('No se pudo determinar el final del objeto DATA; no se pudo regenerar el HTML guardable.');
+    return null;
+  }
+  // Tras el objeto JSON debe venir el ";" que cierra la sentencia; lo conservamos tal cual si está.
+  let afterIdx = endIdx;
+  if(html[afterIdx] === ';') afterIdx++;
+  return html.slice(0, jsonStart) + JSON.stringify(DATA) + ';' + html.slice(afterIdx);
 }
 
 // ===== BUTTON EVENTS =====
@@ -3285,6 +3315,7 @@ document.getElementById('shareBtn').addEventListener('click',()=>{
 document.getElementById('saveBtn').addEventListener('click',()=>{
   if(!adminOk()) return;
   const html=generateSaveableHtml();
+  if(!html){ setStatus('⚠️ Error al generar el archivo. No se ha descargado nada. Avisa a Claude.',true); return; }
   const a=document.createElement('a'); a.href='data:text/html;charset=utf-8,'+encodeURIComponent(html);
   a.download='FantasyMundial2026.html'; a.click();
   setStatus('✅ HTML guardado');
