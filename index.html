@@ -2052,7 +2052,15 @@ ul.ranking{list-style:none}
     </div></div></div>
         <button onclick="addGolRow()" style="background:rgba(76,175,125,0.1);border:1px solid rgba(76,175,125,0.25);color:var(--accent2);border-radius:7px;padding:4px 12px;font-size:0.75rem;cursor:pointer;width:100%">+ Añadir goleador</button>
       </div>
-      <div style="font-size:0.78rem;color:var(--muted);margin-bottom:6px">Pega el texto de "Puntos oficiales" de Comuniazo:</div>
+      <div style="margin-bottom:10px;padding:10px;background:rgba(176,122,255,0.07);border:1px solid rgba(176,122,255,0.2);border-radius:10px">
+        <div style="font-size:0.78rem;color:#b07aff;font-weight:700;margin-bottom:6px">🔗 Importar desde Comuniazo</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="url" id="comuniazoUrlInput" class="url-input" placeholder="https://mundial.comuniazo.com/mundial/45/..." style="flex:1;font-size:0.78rem">
+          <button id="fetchComuniazoBtn" onclick="fetchComuniazo()" style="background:rgba(176,122,255,0.15);border:1px solid rgba(176,122,255,0.35);color:#b07aff;border-radius:8px;padding:7px 12px;font-size:0.82rem;cursor:pointer;white-space:nowrap;font-weight:700">⬇️ Cargar</button>
+        </div>
+        <div id="fetchComuniazoStatus" style="font-size:0.73rem;margin-top:5px;min-height:16px"></div>
+      </div>
+      <div style="font-size:0.78rem;color:var(--muted);margin-bottom:6px">O pega el texto de "Puntos oficiales" de Comuniazo:</div>
       <textarea id="partidoPasteArea" class="url-input" rows="6" style="resize:vertical;font-family:inherit" placeholder="Pega aquí el texto copiado de Comuniazo..."></textarea>
       <button class="btn primary" id="partidoImportBtn" style="margin-top:8px;width:100%">✅ Importar puntos del partido</button>
     </div>
@@ -3275,6 +3283,152 @@ document.getElementById('shareBtn').addEventListener('click',()=>{
   if(navigator.share){ navigator.share({title:'Fantasy Mundial 2026',text:txt}); }
   else { navigator.clipboard.writeText(txt).then(()=>setStatus('✅ Clasificación copiada')).catch(()=>{ const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); setStatus('✅ Clasificación copiada'); }); }
 });
+
+// ===== IMPORTAR DESDE URL COMUNIAZO =====
+async function fetchComuniazo(){
+  const urlInput = document.getElementById('comuniazoUrlInput');
+  const statusEl = document.getElementById('fetchComuniazoStatus');
+  const url = urlInput ? urlInput.value.trim() : '';
+  if(!url || !url.includes('comuniazo.com')){
+    statusEl.textContent='⚠️ Pega una URL de mundial.comuniazo.com';
+    statusEl.style.color='#ff7a7a';
+    return;
+  }
+  statusEl.textContent='⏳ Cargando...';
+  statusEl.style.color='var(--muted)';
+  const btn=document.getElementById('fetchComuniazoBtn');
+  if(btn) btn.disabled=true;
+
+  const proxies=[
+    `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+  ];
+
+  let html=null;
+  for(const proxy of proxies){
+    try{
+      const resp=await fetch(proxy,{signal:AbortSignal.timeout(12000)});
+      if(resp.ok){ html=await resp.text(); break; }
+    } catch(e){ /* try next */ }
+  }
+  if(btn) btn.disabled=false;
+
+  if(!html){
+    statusEl.textContent='❌ No se pudo cargar la página. Comprueba la URL o copia el texto a mano.';
+    statusEl.style.color='#ff7a7a';
+    return;
+  }
+
+  try{
+    const parser=new DOMParser();
+    const doc=parser.parseFromString(html,'text/html');
+    const allText=doc.body ? doc.body.innerText||doc.body.textContent : '';
+
+    // --- Jugadores y puntos ---
+    // Busca los enlaces a jugadores: texto tiene forma "Nombre X Y,Y"
+    const playerLinks=doc.querySelectorAll('a[href*="/comunio-apuestas/jugadores/"]');
+    const playerLines=[];
+    for(const link of playerLinks){
+      const txt=(link.textContent||'').trim();
+      // Formato partido finalizado: "Nombre INT FLOAT" → coger el primer INT antes del FLOAT
+      const m=txt.match(/^(.+?)\s+(\d+)\s+[\d,]+\s*$/);
+      if(m){
+        const nombre=m[1].trim();
+        const pts=parseInt(m[2]);
+        playerLines.push(`${nombre} ${pts}`);
+        continue;
+      }
+      // Formato posibles alineaciones: "Nombre FLOAT / INT INT-"
+      const m2=txt.match(/^(.+?)\s+[\d,]+\s*\/\s*(\d+)\s+/);
+      if(m2){
+        const nombre=m2[1].trim();
+        const pts=parseInt(m2[2]);
+        if(pts>0) playerLines.push(`${nombre} ${pts}`);
+      }
+    }
+
+    if(playerLines.length===0){
+      statusEl.textContent='⚠️ No se encontraron puntos. ¿El partido ya ha terminado?';
+      statusEl.style.color='#ffb347';
+      return;
+    }
+
+    // --- Resultado ---
+    let resultado='';
+    const resMatch=allText.match(/Final\s+(\d+)\s*[-–]\s*(\d+)/);
+    if(resMatch) resultado=`${resMatch[1]}-${resMatch[2]}`;
+
+    // --- Goleadores ---
+    // Detecta líneas con minuto: "83' Mokoena" (gol) o "6' Sadilek Asistencia de Sojka" (gol+asist)
+    // Excluye: contiene "Falta", o la siguiente línea es un nombre sin minuto (=sustitución)
+    const eventLines=allText.split('\n').map(l=>l.trim()).filter(Boolean);
+    const goals=[];
+    for(let i=0;i<eventLines.length;i++){
+      const line=eventLines[i];
+      const evMatch=line.match(/^(\d+)['′]\s+(.+)$/);
+      if(!evMatch) continue;
+      const rest=evMatch[2];
+      if(/falta/i.test(rest)) continue; // tarjeta/falta
+      // Si la siguiente línea es un nombre sin minuto = sustitución (jugador que sale)
+      const nextLine=i+1<eventLines.length ? eventLines[i+1] : '';
+      const nextHasMinute=/^\d+['′]/.test(nextLine);
+      const nextIsName=nextLine && !nextHasMinute && !/final|descanso|tiempo/i.test(nextLine);
+      if(nextIsName){ i++; continue; } // saltar sustitución
+      // Extraer nombre del goleador (antes de "Asistencia de")
+      const scorerRaw=rest.replace(/\s+asistencia de.*/i,'').trim();
+      if(scorerRaw) goals.push(scorerRaw);
+    }
+
+    // --- Pre-rellenar el formulario ---
+    // Textarea de puntos
+    const area=document.getElementById('partidoPasteArea');
+    if(area) area.value=playerLines.join('\n');
+
+    // Resultado
+    if(resultado){
+      const ri=document.getElementById('resultadoInput');
+      if(ri) ri.value=resultado;
+    }
+
+    // Goleadores: limpiar rows existentes y añadir los detectados
+    if(goals.length>0){
+      const golesContainer=document.getElementById('golesRows');
+      if(golesContainer){
+        // Contar goles por jugador (puede marcar 2 veces)
+        const golCount={};
+        goals.forEach(g=>{ golCount[g]=(golCount[g]||0)+1; });
+        // Limpiar rows vacías
+        golesContainer.querySelectorAll('div[id^="golrow_"]').forEach(r=>{
+          const inp=r.querySelector('.gol-nombre');
+          if(inp && !inp.value.trim()) r.remove();
+        });
+        // Añadir un row por cada goleador
+        Object.entries(golCount).forEach(([nombre,num])=>{
+          addGolRow();
+          const rows=golesContainer.querySelectorAll('div[id^="golrow_"]');
+          const last=rows[rows.length-1];
+          if(last){
+            const ni=last.querySelector('.gol-nombre');
+            const nn=last.querySelector('.gol-num');
+            if(ni) ni.value=nombre;
+            if(nn) nn.value=num;
+          }
+        });
+      }
+    }
+
+    const pStr=playerLines.length>0?`${playerLines.length} jugadores`:'';
+    const rStr=resultado?`, resultado ${resultado}`:'';
+    const gStr=goals.length>0?`, ${goals.length} gol(es) detectados`:'';
+    statusEl.textContent=`✅ Cargado: ${pStr}${rStr}${gStr}. Revisa y pulsa Importar.`;
+    statusEl.style.color='var(--accent2)';
+
+  } catch(e){
+    statusEl.textContent=`❌ Error al parsear la página: ${e.message}`;
+    statusEl.style.color='#ff7a7a';
+    console.error('fetchComuniazo error:',e);
+  }
+}
 
 document.getElementById('saveBtn').addEventListener('click',()=>{
   if(!adminOk()) return;
