@@ -3076,7 +3076,7 @@ function koAvailableTeams(round, matchIdx, slot){
   const other = slot==='a'?m.b:m.a; // team in the other slot of this match
 
   let pool;
-  if(round==="r16"){
+  if(round===KO_ORDER[0]){
     pool = [...TODOS_EQUIPOS];
   } else {
     const prevRound = KO_STRUCTURE[round].prev;
