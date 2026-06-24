@@ -420,12 +420,6 @@ ul.ranking{list-style:none}
   <div class="panel" id="knockoutPanel" style="display: none;">
     <div style="font-weight:700;font-size:1rem;margin-bottom:10px">🏆 Fase eliminatoria</div>
     <div id="knockoutRounds"><div class="ko-round">
-      <div style="text-align:center;margin-bottom:12px">
-  <button onclick="autoFillD16()" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:0.85rem;font-weight:700;cursor:pointer;letter-spacing:0.5px">
-    🔄 Auto-rellenar desde clasificación
-  </button>
-  <div style="font-size:0.65rem;color:rgba(220,232,244,0.4);margin-top:5px">Calcula 1°, 2° y mejores 3° según resultados importados</div>
-</div>
 <div class="ko-round-title">Dieciseisavos de final</div><div class="ko-match">
           <div style="font-size:0.7rem;color:var(--muted);margin-bottom:6px">Partido 1</div>
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
@@ -3237,8 +3231,17 @@ function renderKnockout(){
     const prevRound = info.prev;
     const prevHasWinner = prevRound ? koRoundHasAnyWinner(prevRound) : true;
 
-    html += `<div class="ko-round">
-      <div class="ko-round-title">${info.label}</div>`;
+    html += `<div class="ko-round">`;
+
+    // Botón auto-relleno solo en dieciseisavos
+    if(round === 'd16'){
+      html += `<div style="text-align:center;margin-bottom:12px">
+        <button onclick="autoFillD16()" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:0.85rem;font-weight:700;cursor:pointer;letter-spacing:0.5px">🔄 Auto-rellenar desde clasificación</button>
+        <div style="font-size:0.65rem;color:rgba(220,232,244,0.4);margin-top:4px">Calcula 1°, 2° y mejores 3° según resultados importados</div>
+      </div>`;
+    }
+
+    html += `<div class="ko-round-title">${info.label}</div>`;
 
     if(!prevHasWinner && prevRound){
       html += `<div style="color:var(--muted);font-size:0.82rem;padding:10px 4px">⏳ Disponible cuando haya ganadores en ${KO_STRUCTURE[prevRound].label}</div>`;
