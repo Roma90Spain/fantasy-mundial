@@ -2812,7 +2812,10 @@ function buildRoster(f){
   const byPos={'1.Portero':[],'2.Defensa':[],'3.Mediocentro':[],'4.Delantero':[]};
   f.team.forEach(p=>{ if(byPos[p.pos]) byPos[p.pos].push(p); });
   const labels={'1.Portero':'Portero','2.Defensa':'Defensa','3.Mediocentro':'Mediocentro','4.Delantero':'Delantero'};
-  return Object.entries(byPos).map(([pos,players])=>{
+  const cambiosHechos = (DATA.cambios||{})[f.name]?.length || 0;
+  const cambiosStr = cambiosHechos > 0 ? ` <span style="font-size:0.6rem;color:var(--accent);background:rgba(240,192,64,0.12);padding:1px 5px;border-radius:4px;border:1px solid rgba(240,192,64,0.2)">${cambiosHechos}/3 cambios</span>` : '';
+
+  let html = Object.entries(byPos).map(([pos,players])=>{
     if(!players.length) return '';
     const rows=players.map(p=>{
       const pts=getScore(p.name);
@@ -2820,10 +2823,270 @@ function buildRoster(f){
       const eff=pts*(p.captain?2:1);
       const _db=PLAYERS_DB[p.name];const _flag=_db?(FLAGS[_db[1]]||''):'';
       const lastTag = getLastMatchTag(p.name);
-      return `<div class="player-row"><span class="player-name">${_flag} ${p.name}${cap}${lastTag}</span><span class="player-score ${pts===0?'zero':''}">${eff} pts</span></div>`;
+      // Marcar si fue cambiado
+      const wasSub = (DATA.cambios||{})[f.name]?.some(c=>c.entra===p.name||c.sale===p.name);
+      const subMark = wasSub ? ' 🔄' : '';
+      return `<div class="player-row"><span class="player-name">${_flag} ${p.name}${cap}${lastTag}${subMark}</span><span class="player-score ${pts===0?'zero':''}">${eff} pts</span></div>`;
     }).join('');
     return `<div class="pos-group"><div class="pos-title">${labels[pos]}</div>${rows}</div>`;
   }).join('');
+
+  // Botón cambios (visible solo para admin — se muestra siempre pero requiere pass)
+  html += `<div style="margin-top:12px;text-align:center">
+    <button onclick="abrirCambios('${f.name}')" style="background:rgba(20,50,120,0.5);border:1px solid rgba(80,130,220,0.4);color:#7ab8ff;border-radius:8px;padding:7px 16px;font-size:0.78rem;cursor:pointer;font-weight:600">✏️ Cambios de jugadores${cambiosStr}</button>
+  </div>`;
+  return html;
+}
+
+
+/* ═══════════════════════════════════════
+   SISTEMA DE CAMBIOS DE JUGADORES
+   Máx 3 cambios por equipo. Solo admin.
+   Solo disponible tras la fase de grupos.
+   ═══════════════════════════════════════ */
+
+let cambiosFriendActivo = null; // nombre del amigo en edición
+let cambiosEnCurso = [];         // cambios pendientes de confirmar [{sale, entra, pos, capAnterior}]
+
+function abrirCambios(friendName){
+  if(!adminOk()) return;
+
+  const f = DATA.friends.find(x=>x.name===friendName);
+  if(!f){ alert('Amigo no encontrado'); return; }
+
+  if(!DATA.cambios) DATA.cambios = {};
+  if(!DATA.cambios[friendName]) DATA.cambios[friendName] = [];
+
+  cambiosFriendActivo = friendName;
+  cambiosEnCurso = [];
+
+  renderModalCambios(f);
+}
+
+function renderModalCambios(f){
+  let modal = document.getElementById('cambiosModal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'cambiosModal';
+    modal.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(4,10,20,0.99);border-top:2px solid rgba(80,140,255,0.4);border-radius:16px 16px 0 0;padding:16px 14px 28px;box-shadow:0 -8px 40px rgba(0,0,0,0.9);max-height:88vh;overflow-y:auto;display:none';
+    document.body.appendChild(modal);
+  }
+
+  const hechos = (DATA.cambios||{})[f.name] || [];
+  const restantes = 3 - hechos.length;
+
+  const posLabels = {'1.Portero':'🧤 PT','2.Defensa':'🛡️ DF','3.Mediocentro':'⚙️ MC','4.Delantero':'⚡ DL'};
+
+  let jugadoresHtml = f.team.map((p,idx)=>{
+    const pts = getScore(p.name);
+    const db = PLAYERS_DB[p.name];
+    const flag = db?(FLAGS[db[1]]||''):'';
+    const eff = pts*(p.captain?2:1);
+    const cap = p.captain ? '<span style="background:#f0c040;color:#000;font-size:0.55rem;font-weight:800;padding:1px 5px;border-radius:4px;margin-left:4px">C</span>' : '';
+    const fueReemplazado = hechos.some(c=>c.sale===p.name);
+    const esNuevo = hechos.some(c=>c.entra===p.name);
+    const badge = fueReemplazado ? '<span style="font-size:0.6rem;color:#f87171;margin-left:4px">↗ salió</span>' :
+                  esNuevo        ? '<span style="font-size:0.6rem;color:#4ade80;margin-left:4px">↙ entró</span>' : '';
+    const posL = posLabels[p.pos]||p.pos;
+    return `<div style="display:flex;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid rgba(30,60,100,0.35)">
+      <span style="font-size:0.62rem;color:var(--muted);min-width:28px;text-align:center">${posL}</span>
+      <span style="flex:1;font-size:0.82rem;color:#dce8f4">${flag} ${p.name}${cap}${badge}</span>
+      <span style="font-size:0.75rem;color:${eff>0?'var(--accent2)':'var(--muted)'};font-weight:700">${eff} pts</span>
+      <div style="display:flex;gap:5px">
+        ${restantes>0 && !fueReemplazado ? `<button onclick="iniciarCambio('${f.name}',${idx})" style="font-size:0.68rem;background:rgba(30,60,130,0.5);border:1px solid rgba(80,130,220,0.4);color:#7ab8ff;border-radius:6px;padding:3px 10px;cursor:pointer">🔄 cambiar</button>` : ''}
+        <button onclick="toggleCapitanCambio('${f.name}',${idx})" style="font-size:0.68rem;background:${p.captain?'rgba(180,140,0,0.3)':'rgba(30,40,60,0.5)'};border:1px solid ${p.captain?'rgba(240,192,64,0.5)':'rgba(60,80,120,0.3)'};color:${p.captain?'#f0c040':'#aaa'};border-radius:6px;padding:3px 10px;cursor:pointer">${p.captain?'⭐ Capitán':'☆ Cap'}</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Historial de cambios ya realizados
+  let historialHtml = '';
+  if(hechos.length){
+    historialHtml = `<div style="margin-top:10px;font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Cambios realizados</div>` +
+    hechos.map((c,i)=>`<div style="font-size:0.72rem;color:rgba(180,210,255,0.7);padding:3px 0;display:flex;gap:6px;align-items:center">
+      <span style="color:#f87171">${c.sale}</span> → <span style="color:#4ade80">${c.entra}</span>
+      <span style="margin-left:auto;font-size:0.62rem;color:var(--muted)">${c.fecha||''}</span>
+    </div>`).join('');
+  }
+
+  modal.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div>
+        <div style="font-size:0.9rem;color:#7ab8ff;font-weight:700">✏️ Cambios — ${f.name}</div>
+        <div style="font-size:0.7rem;color:${restantes>0?'rgba(180,210,255,0.6)':'#f87171'};margin-top:2px">
+          ${restantes>0 ? `${restantes} cambio${restantes!==1?'s':''} disponible${restantes!==1?'s':''}` : '⚠️ Límite de 3 cambios alcanzado'}
+        </div>
+      </div>
+      <button onclick="cerrarCambios()" style="background:rgba(30,60,120,0.5);border:1px solid rgba(80,120,200,0.4);color:#aac4ff;font-size:0.82rem;cursor:pointer;padding:5px 14px;border-radius:8px">✕ Cerrar</button>
+    </div>
+    ${jugadoresHtml}
+    ${historialHtml}
+  `;
+  modal.style.display = 'block';
+}
+
+function iniciarCambio(friendName, playerIdx){
+  const f = DATA.friends.find(x=>x.name===friendName);
+  if(!f) return;
+  const jugadorSale = f.team[playerIdx];
+
+  let modal = document.getElementById('cambiosModal');
+
+  // Buscar jugadores del PLAYERS_DB con el mismo puesto
+  const posTarget = jugadorSale.pos;
+  const todosEnEquipo = new Set(f.team.map(p=>p.name));
+
+  modal.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div>
+        <div style="font-size:0.85rem;color:#7ab8ff;font-weight:700">🔄 Cambiar a ${jugadorSale.name}</div>
+        <div style="font-size:0.7rem;color:rgba(180,210,255,0.55)">Posición: ${jugadorSale.pos.replace(/\d\./,'')}</div>
+      </div>
+      <button onclick="renderModalCambios(DATA.friends.find(x=>x.name==='${friendName}'))" style="background:rgba(30,60,120,0.4);border:1px solid rgba(60,100,180,0.3);color:#7ab8ff;font-size:0.8rem;cursor:pointer;padding:4px 12px;border-radius:7px">← Volver</button>
+    </div>
+    <div style="font-size:0.7rem;color:rgba(150,180,220,0.6);margin-bottom:8px">Busca el jugador que entra en su lugar:</div>
+    <input type="text" id="cambiosBusqueda" placeholder="Buscar jugador..." oninput="filtrarJugadoresCambio('${friendName}',${playerIdx},this.value)"
+      style="width:100%;background:rgba(8,20,44,0.95);border:2px solid rgba(60,120,220,0.55);border-radius:10px;color:#e8f0ff;font-size:0.85rem;padding:10px 12px;box-sizing:border-box;outline:none;-webkit-appearance:none;display:block;margin-bottom:10px">
+    <div id="cambiosResultados" style="max-height:45vh;overflow-y:auto"></div>
+    <div style="font-size:0.65rem;color:rgba(120,160,200,0.4);text-align:center;margin-top:8px">Se muestran jugadores de cualquier posición. El cambio es libre.</div>
+  `;
+  modal.style.display = 'block';
+  setTimeout(()=>{ const inp=document.getElementById('cambiosBusqueda'); if(inp){ inp.focus(); } }, 100);
+  filtrarJugadoresCambio(friendName, playerIdx, '');
+}
+
+function filtrarJugadoresCambio(friendName, playerIdx, query){
+  const f = DATA.friends.find(x=>x.name===friendName);
+  if(!f) return;
+  const jugadorSale = f.team[playerIdx];
+  const enEquipo = new Set(f.team.map(p=>p.name));
+  const q = query.toLowerCase().trim();
+
+  // Filtrar PLAYERS_DB
+  let resultados = Object.entries(PLAYERS_DB)
+    .filter(([name, data])=>{
+      if(enEquipo.has(name)) return false; // ya está en el equipo
+      if(q && !name.toLowerCase().includes(q)) return false;
+      return true;
+    })
+    .sort((a,b)=>{
+      // Priorizar misma posición
+      const posA = a[1][0]||''; const posB = b[1][0]||'';
+      const sameA = posA === jugadorSale.pos; const sameB = posB === jugadorSale.pos;
+      if(sameA && !sameB) return -1;
+      if(!sameA && sameB) return 1;
+      // Luego por puntos
+      return (getScore(b[0])||0)-(getScore(a[0])||0);
+    })
+    .slice(0, q ? 40 : 20);
+
+  const div = document.getElementById('cambiosResultados');
+  if(!div) return;
+  if(!resultados.length){
+    div.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;font-size:0.78rem">Sin resultados</div>';
+    return;
+  }
+
+  div.innerHTML = resultados.map(([name, db])=>{
+    const pts = getScore(name);
+    const flag = FLAGS[db[1]]||'';
+    const nat = db[1]||'';
+    const pos = (db[0]||'').replace(/\d\./,'');
+    const mismaPosicion = db[0] === jugadorSale.pos;
+    return `<div onclick="confirmarCambio('${friendName}',${playerIdx},'${name.replace(/'/g,"\\'")}','${(db[0]||'').replace(/'/g,"\\'")}')"
+      style="display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:1px solid rgba(30,60,100,0.3);cursor:pointer;transition:background 0.1s;border-radius:4px"
+      onmouseenter="this.style.background='rgba(40,80,160,0.25)'" onmouseleave="this.style.background=''">
+      <span style="font-size:0.85rem">${flag}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:0.8rem;color:#dce8f4;font-weight:600">${name}</div>
+        <div style="font-size:0.62rem;color:var(--muted)">${nat} · <span style="color:${mismaPosicion?'var(--accent2)':'rgba(150,180,220,0.5)'}">${pos}</span></div>
+      </div>
+      <span style="font-size:0.78rem;font-weight:700;color:${pts>0?'var(--accent2)':'var(--muted)'};flex-shrink:0">${pts} pts</span>
+    </div>`;
+  }).join('');
+}
+
+function confirmarCambio(friendName, playerIdx, jugadorEntra, posEntra){
+  const f = DATA.friends.find(x=>x.name===friendName);
+  if(!f) return;
+  const jugadorSale = f.team[playerIdx];
+
+  const hechos = (DATA.cambios||{})[friendName] || [];
+  if(hechos.length >= 3){
+    alert('⚠️ Este equipo ya ha usado sus 3 cambios permitidos.');
+    return;
+  }
+
+  const hoy = new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit'});
+  const msg = `¿Confirmar cambio?\n\n❌ Sale: ${jugadorSale.name}\n✅ Entra: ${jugadorEntra}\n\n⚠️ Este cambio es definitivo y cuenta para el límite de 3.`;
+
+  if(!confirm(msg)) return;
+
+  // Aplicar cambio
+  const wasCapitan = jugadorSale.captain;
+  f.team[playerIdx] = { name: jugadorEntra, pos: f.team[playerIdx].pos, captain: wasCapitan };
+
+  // Registrar en historial
+  if(!DATA.cambios) DATA.cambios = {};
+  if(!DATA.cambios[friendName]) DATA.cambios[friendName] = [];
+  DATA.cambios[friendName].push({
+    sale: jugadorSale.name,
+    entra: jugadorEntra,
+    pos: jugadorSale.pos,
+    fecha: hoy
+  });
+
+  saveToLS();
+  renderRanking();
+
+  // Reabrir modal con plantilla actualizada
+  const fActualizado = DATA.friends.find(x=>x.name===friendName);
+  renderModalCambios(fActualizado);
+
+  // Aviso
+  setTimeout(()=>{
+    const hechos2 = DATA.cambios[friendName]?.length || 0;
+    const restantes2 = 3 - hechos2;
+    if(restantes2 === 0){
+      alert(`✅ Cambio realizado.\n\n⚠️ ${friendName} ha usado sus 3 cambios. No podrá hacer más.`);
+    } else {
+      alert(`✅ Cambio aplicado: ${jugadorSale.name} → ${jugadorEntra}\n\nQuedan ${restantes2} cambio${restantes2!==1?'s':''} disponibles para ${friendName}.`);
+    }
+  }, 100);
+}
+
+function toggleCapitanCambio(friendName, playerIdx){
+  if(!adminOk()) return;
+  const f = DATA.friends.find(x=>x.name===friendName);
+  if(!f) return;
+  const jugador = f.team[playerIdx];
+
+  if(jugador.captain){
+    // Quitar capitanía (tiene que haber otro capitán)
+    if(!confirm(`¿Quitar la capitanía a ${jugador.name}?\n\nAtencion: deberás asignar un nuevo capitán.`)) return;
+    f.team[playerIdx].captain = false;
+  } else {
+    // Poner capitán — quitar al anterior primero
+    const capAnterior = f.team.find(p=>p.captain);
+    const msg = capAnterior
+      ? `¿Hacer capitán a ${jugador.name}?\n\nSe quitará la capitanía a ${capAnterior.name}.`
+      : `¿Hacer capitán a ${jugador.name}?`;
+    if(!confirm(msg)) return;
+    f.team.forEach(p=>p.captain=false);
+    f.team[playerIdx].captain = true;
+  }
+
+  saveToLS();
+  renderRanking();
+  const fActualizado = DATA.friends.find(x=>x.name===friendName);
+  renderModalCambios(fActualizado);
+}
+
+function cerrarCambios(){
+  const modal = document.getElementById('cambiosModal');
+  if(modal) modal.style.display = 'none';
+  cambiosFriendActivo = null;
+  cambiosEnCurso = [];
 }
 
 function toggleRoster(btn){
@@ -3285,32 +3548,56 @@ const FASE_FINAL = [
 
 function renderCalFinal(panel){
   if(!DATA.knockout) DATA.knockout={};
-  let html='';
-  FASE_FINAL.forEach(fase=>{
-    html+=`<div class="cal-day"><div class="cal-day-title" style="color:var(--accent)">${fase.label}</div>`;
-    fase.partidos.forEach(p=>{
-      const m = (DATA.knockout||{})[p.id]||{a:'',b:'',winner:''};
-      const teamA = m.a ? `${FLAGS[m.a]||''} ${m.a}` : '—';
-      const teamB = m.b ? `${FLAGS[m.b]||''} ${m.b}` : '—';
-      const winStyle = m.winner ? 'border-color:rgba(76,175,125,0.4);' : '';
-      const winnerTag = m.winner ? `<span style="color:var(--accent2);font-size:0.68rem;margin-left:4px">✅ ${m.winner}</span>` : '';
-      html+=`<div class="cal-match" style="${winStyle}">
-        <div class="cal-teams" style="flex:1;text-align:left;font-size:0.8rem">
-          <span style="${m.winner===m.a?'color:var(--accent2);font-weight:700':''}">${teamA}</span>
-          <span style="color:var(--muted);margin:0 4px">vs</span>
-          <span style="${m.winner===m.b?'color:var(--accent2);font-weight:700':''}">${teamB}</span>
-          ${winnerTag}
+  if(!DATA.koExtra) DATA.koExtra={};
+
+  // Construir estructura plana de todos los partidos eliminatorios
+  const RONDAS_CAL = [
+    { key:'d16', label:'Dieciseisavos de final', dates: KO_DATES.d16, count:16 },
+    { key:'r16', label:'Octavos de final',       dates: KO_DATES.r16, count:8  },
+    { key:'qf',  label:'Cuartos de final',       dates: KO_DATES.qf,  count:4  },
+    { key:'sf',  label:'Semifinales',            dates: KO_DATES.sf,  count:2  },
+    { key:'f',   label:'Final',                  dates: KO_DATES.f,   count:1  },
+  ];
+
+  let html = '';
+  RONDAS_CAL.forEach(ronda=>{
+    html += `<div class="cal-day"><div class="cal-day-title" style="color:var(--accent)">${ronda.label}</div>`;
+    for(let i=0; i<ronda.count; i++){
+      const m = koGetMatch(ronda.key, i);
+      const extra = koGetExtra(ronda.key, i);
+      const date = (ronda.dates||[])[i] || '';
+      const labA = (ronda.key==='d16') ? (KO_D16_LABELS[i]||['',''])[0] : '';
+      const labB = (ronda.key==='d16') ? (KO_D16_LABELS[i]||['',''])[1] : '';
+      const nameA = m.a ? `${FLAGS[m.a]||''} ${m.a}` : (labA ? `G. ${labA}` : '—');
+      const nameB = m.b ? `${FLAGS[m.b]||''} ${m.b}` : (labB ? `G. ${labB}` : '—');
+      const winStyleA = m.winner===m.a ? 'color:var(--accent2);font-weight:700' : '';
+      const winStyleB = m.winner===m.b ? 'color:var(--accent2);font-weight:700' : '';
+      const res = extra.resultado ? `<span style="font-size:0.78rem;font-weight:800;color:var(--accent);background:rgba(240,192,64,0.1);padding:1px 7px;border-radius:5px;border:1px solid rgba(240,192,64,0.2)">${extra.resultado}</span>` : '';
+      const importBtn = extra.imported
+        ? `<button onclick="koShowDetail('${ronda.key}',${i})" style="font-size:0.65rem;background:rgba(20,70,30,0.5);border:1px solid rgba(76,175,125,0.35);color:#4ade80;border-radius:6px;padding:3px 8px;cursor:pointer">📊 pts</button>`
+        : `<button onclick="koShowImport('${ronda.key}',${i})" style="font-size:0.65rem;background:rgba(20,40,100,0.4);border:1px solid rgba(60,100,200,0.35);color:#7ab8ff;border-radius:6px;padding:3px 8px;cursor:pointer">📥 url</button>`;
+
+      html += `<div class="cal-match" style="${m.winner?'border-color:rgba(76,175,125,0.3);':''}">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:0.78rem;margin-bottom:2px">
+            <span style="${winStyleA}">${nameA}</span>
+            <span style="color:var(--muted);margin:0 5px">vs</span>
+            <span style="${winStyleB}">${nameB}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:3px">
+            ${res}
+            ${m.winner ? `<span style="font-size:0.62rem;color:var(--accent2)">✅ ${m.winner}</span>` : ''}
+          </div>
         </div>
-        <div style="text-align:right;min-width:60px">
-          <div class="cal-time">${p.hora}</div>
-          <div style="font-size:0.62rem;color:var(--muted)">${p.fecha}</div>
-          <div style="font-size:0.6rem;color:var(--muted);opacity:0.7">${p.sede}</div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;margin-left:8px">
+          <span class="cal-time" style="font-size:0.7rem">${date}</span>
+          ${adminOk() ? importBtn : (extra.imported ? `<span style="font-size:0.62rem;color:var(--accent2)">✅</span>` : '')}
         </div>
       </div>`;
-    });
-    html+='</div>';
+    }
+    html += `</div>`;
   });
-  panel.innerHTML=html;
+  panel.innerHTML = html;
 }
 
 // ===== ESTADÍSTICAS =====
@@ -3490,13 +3777,11 @@ function renderKnockout(){
   if(!DATA.knockout) DATA.knockout={};
   const wrap = document.getElementById('knockoutRounds');
 
-  /* ── BOTÓN AUTO-RELLENO ── */
   let html = `<div style="text-align:center;margin-bottom:14px">
     <button class="ko-autofill-btn" onclick="autoFillD16()">🔄 Auto-rellenar desde clasificación</button>
     <div style="font-size:0.65rem;color:rgba(220,232,244,0.35);margin-top:4px">Calcula 1°, 2° y mejores 3° según resultados importados</div>
   </div>`;
 
-  /* ── BRACKET SCROLL HORIZONTAL ── */
   html += `<div class="ko-bracket-scroll"><div class="ko-bracket-row">`;
 
   KO_ORDER.forEach((round, rIdx) => {
@@ -3506,58 +3791,47 @@ function renderKnockout(){
     const dates = KO_DATES[round] || [];
     const count = info.count;
 
-    /* ── Columna de ronda ── */
     html += `<div class="ko-col" id="ko-col-${round}">`;
     html += `<div class="ko-col-header">${info.label}</div>`;
 
     if(!prevHasWinner && prevRound){
-      html += `<div style="color:var(--muted);font-size:0.73rem;padding:16px 8px;text-align:center;opacity:0.55">⏳ Pendiente de ronda anterior</div>`;
+      html += `<div style="color:var(--muted);font-size:0.73rem;padding:16px 8px;text-align:center;opacity:0.55">⏳ Pendiente</div>`;
     } else {
       for(let i=0; i<count; i++){
         const m = koGetMatch(round, i);
         const extra = koGetExtra(round, i);
         const date = dates[i] || '';
 
-        /* badges de grupo */
         const labA = (round==='d16') ? (KO_D16_LABELS[i]||['',''])[0] : '';
         const labB = (round==='d16') ? (KO_D16_LABELS[i]||['',''])[1] : '';
         const badgeClassA = labA.startsWith('1') ? 'top' : labA.startsWith('3') ? 'bot' : '';
         const badgeClassB = labB.startsWith('1') ? 'top' : labB.startsWith('3') ? 'bot' : '';
 
-        /* ganador/perdedor */
         const classA = m.winner ? (m.winner===m.a ? 'ko-winner' : 'ko-loser') : '';
         const classB = m.winner ? (m.winner===m.b ? 'ko-winner' : 'ko-loser') : '';
 
-        /* flags y nombres */
-        const flagA = m.a ? (FLAGS[m.a]||'🏴') : '';
-        const flagB = m.b ? (FLAGS[m.b]||'🏴') : '';
+        const flagA = m.a ? (FLAGS[m.a]||'\uD83C\uDFF4') : '';
+        const flagB = m.b ? (FLAGS[m.b]||'\uD83C\uDFF4') : '';
         const nameA = m.a || (labA ? `G. ${labA}` : '—');
         const nameB = m.b || (labB ? `G. ${labB}` : '—');
 
-        /* goles por equipo */
-        const golesA = extra.goles?.filter(g=>g.equipo===m.a||g.equipo==='A').length || '';
-        const golesB = extra.goles?.filter(g=>g.equipo===m.b||g.equipo==='B').length || '';
         const resArr = extra.resultado ? extra.resultado.split('-') : ['',''];
         const resA = resArr[0]||'';
         const resB = resArr[1]||'';
-        const resDisp = extra.resultado ? `<span style="font-size:0.65rem;font-weight:800;color:var(--accent);margin-left:4px;background:rgba(240,192,64,0.12);padding:1px 5px;border-radius:4px;border:1px solid rgba(240,192,64,0.2)">${extra.resultado}</span>` : '';
 
-        /* label del partido */
         const matchLabel = round==='d16' ? `Dieciseisavos ${i+1}` :
                            round==='r16' ? `Octavos ${i+1}` :
                            round==='qf'  ? `Cuartos ${i+1}` :
                            round==='sf'  ? `Semifinal ${i+1}` : '🏆 Final';
 
-        /* indicador de puntos importados */
         const importBadge = extra.imported
-          ? `<span style="font-size:0.55rem;color:var(--accent2);background:rgba(76,175,125,0.15);padding:1px 4px;border-radius:3px;border:1px solid rgba(76,175,125,0.3)">✅ pts</span>`
-          : `<span title="Importar puntos" onclick="event.stopPropagation();koOpenImport('${round}',${i})" style="font-size:0.55rem;color:rgba(150,190,255,0.5);cursor:pointer;background:rgba(40,80,140,0.2);padding:1px 4px;border-radius:3px;border:1px solid rgba(40,80,140,0.3)">📥 url</span>`;
+          ? `<span onclick="event.stopPropagation();koShowDetail('${round}',${i})" style="font-size:0.55rem;color:var(--accent2);background:rgba(76,175,125,0.15);padding:1px 5px;border-radius:3px;border:1px solid rgba(76,175,125,0.3);cursor:pointer">✅ pts</span>`
+          : `<span onclick="event.stopPropagation();koShowImport('${round}',${i})" style="font-size:0.55rem;color:rgba(150,190,255,0.6);cursor:pointer;background:rgba(40,80,140,0.2);padding:1px 5px;border-radius:3px;border:1px solid rgba(40,80,140,0.3)">📥 url</span>`;
 
-        html += `
-          <div class="ko-match-card" id="ko-card-${round}-${i}" onclick="koCardClick('${round}',${i})">
+        html += `<div class="ko-match-card" onclick="koShowEdit('${round}',${i})">
             <div class="ko-match-header">
               <span class="ko-match-label">${matchLabel}</span>
-              <div style="display:flex;align-items:center;gap:4px">
+              <div style="display:flex;align-items:center;gap:5px">
                 ${importBadge}
                 <span class="ko-match-date">${date}</span>
               </div>
@@ -3566,108 +3840,124 @@ function renderKnockout(){
               ${labA ? `<span class="ko-team-badge ${badgeClassA}">${labA}</span>` : ''}
               <span class="ko-team-flag">${m.a ? flagA : ''}</span>
               <span class="ko-team-name">${nameA}</span>
-              ${resA!=='' ? `<span style="font-size:0.7rem;font-weight:800;color:${m.winner===m.a?'#4ade80':'#dce8f4'};margin-left:auto;padding-left:6px">${resA}</span>` : ''}
+              ${resA!=='' ? `<span style="font-size:0.72rem;font-weight:800;color:${m.winner===m.a?'#4ade80':'rgba(220,232,244,0.7)'};margin-left:auto;padding-left:4px;flex-shrink:0">${resA}</span>` : ''}
               ${m.winner===m.a ? '<span class="ko-win-check">✓</span>' : ''}
             </div>
             <div class="ko-team-row ${classB}" onclick="event.stopPropagation();koPickWinnerMarca('${round}',${i},'b')">
               ${labB ? `<span class="ko-team-badge ${badgeClassB}">${labB}</span>` : ''}
               <span class="ko-team-flag">${m.b ? flagB : ''}</span>
               <span class="ko-team-name">${nameB}</span>
-              ${resB!=='' ? `<span style="font-size:0.7rem;font-weight:800;color:${m.winner===m.b?'#4ade80':'#dce8f4'};margin-left:auto;padding-left:6px">${resB}</span>` : ''}
+              ${resB!=='' ? `<span style="font-size:0.72rem;font-weight:800;color:${m.winner===m.b?'#4ade80':'rgba(220,232,244,0.7)'};margin-left:auto;padding-left:4px;flex-shrink:0">${resB}</span>` : ''}
               ${m.winner===m.b ? '<span class="ko-win-check">✓</span>' : ''}
             </div>
           </div>`;
 
-        /* espaciador entre grupos de 2 partidos (para alinear con siguiente ronda) */
-        const needsSpacer = (round==='d16' && i%2===1) ||
-                            (round==='r16' && i%2===1) ||
-                            (round==='qf'  && i%2===1);
-        if(needsSpacer) html += `<div class="ko-spacer-${round}"></div>`;
+        if(i % 2 === 1 && i < count-1){
+          const sp = round==='d16' ? 8 : round==='r16' ? 14 : 22;
+          html += `<div style="height:${sp}px;flex-shrink:0"></div>`;
+        }
       }
     }
-    html += `</div>`; // fin ko-col
+    html += `</div>`;
 
-    /* ── Conectores entre columnas ── */
     if(rIdx < KO_ORDER.length - 1){
-      const nextRound = KO_ORDER[rIdx+1];
-      const nextCount = KO_STRUCTURE[nextRound].count;
-      html += koBuildConnectors(round, count, nextCount);
+      const nextCount = KO_STRUCTURE[KO_ORDER[rIdx+1]].count;
+      html += koBuildConnectors(count, nextCount, !prevHasWinner && prevRound);
     }
   });
 
-  html += `</div></div>`; // fin ko-bracket-row + ko-bracket-scroll
-
-  /* ── MODAL EDICIÓN / IMPORT ── */
-  html += `<div id="koModal" style="display:none;margin-top:12px;background:rgba(5,15,32,0.97);border:1px solid rgba(50,100,180,0.4);border-radius:12px;padding:16px;box-shadow:0 4px 24px rgba(0,0,0,0.5)"></div>`;
-
+  html += `</div></div>`;
   wrap.innerHTML = html;
 
-  /* actualizar espaciadores con CSS dinámico */
-  koAdjustSpacers();
+  // El modal vive FUERA del scroll (en el panel padre) para que textarea funcione bien
+  let modal = document.getElementById('koModal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'koModal';
+    modal.style.cssText = 'display:none;margin-top:14px;background:rgba(5,14,30,0.98);border:1px solid rgba(50,100,200,0.45);border-radius:12px;padding:16px;box-shadow:0 6px 32px rgba(0,0,0,0.6)';
+    wrap.parentElement.appendChild(modal);
+  }
 
   if(document.getElementById('calPanel').style.display==='block' && calTab==='final') renderCal();
 }
 
-/* Construye los conectores SVG/HTML entre columnas */
-function koBuildConnectors(round, count, nextCount){
-  // Cada par de partidos de 'round' se une en uno de 'nextRound'
-  // Usamos líneas CSS simples
-  let out = `<div class="ko-connectors" data-from="${round}" data-count="${count}" data-next="${nextCount}">`;
-  const groups = count / nextCount; // cuántos partidos del round actual forman 1 del siguiente
+/* Construye los conectores entre rondas estilo Marca */
+function koBuildConnectors(count, nextCount, pending){
+  // count = partidos esta ronda, nextCount = partidos siguiente ronda
+  // Cada 2 partidos de esta ronda alimentan 1 de la siguiente
+  // Altura de cada tarjeta aprox 72px + espaciadores entre pares
+  const CARD_H = 72;   // altura aprox de cada tarjeta
+  const GAP = 3;       // gap entre tarjetas dentro del par
+  const PAIR_GAP = 8;  // espaciador entre pares
+
+  let out = `<div style="display:flex;flex-direction:column;min-width:18px;padding-top:32px;flex-shrink:0">`;
+
   for(let g=0; g<nextCount; g++){
-    out += `<div class="ko-conn-group" data-g="${g}">
-      <div class="ko-conn-top"></div>
-      <div class="ko-conn-mid"></div>
-      <div class="ko-conn-bot"></div>
+    // Altura del conector = altura de un par (2 tarjetas + gap interno)
+    const pairH = CARD_H * 2 + GAP;
+    const half = Math.round(pairH / 2);
+    out += `<div style="display:flex;flex-direction:column;height:${pairH}px;flex-shrink:0">
+      <div style="flex:1;border-right:2px solid rgba(100,160,255,0.22);border-bottom:2px solid rgba(100,160,255,0.22);border-bottom-right-radius:5px"></div>
+      <div style="width:18px;height:2px;background:rgba(100,160,255,0.22);flex-shrink:0"></div>
+      <div style="flex:1;border-right:2px solid rgba(100,160,255,0.22);border-top:2px solid rgba(100,160,255,0.22);border-top-right-radius:5px"></div>
     </div>`;
+    // Espaciador entre grupos (igual que el que ponemos entre pares de tarjetas)
+    if(g < nextCount-1){
+      out += `<div style="height:${PAIR_GAP*2 + CARD_H*2 + GAP}px;flex-shrink:0"></div>`;
+    }
   }
   out += `</div>`;
   return out;
 }
 
-function koAdjustSpacers(){
-  // Los espaciadores se ajustan a la altura de las tarjetas para alinear con rondas siguientes
-  // En móvil esto es aproximado; el CSS maneja el caso base
-}
-
-/* ── IMPORTAR URL ── */
-function koOpenImport(round, idx){
-  koEditRound = round; koEditIdx = idx;
-  const modal = document.getElementById('koModal');
-  if(!modal) return;
+/* ── IMPORT URL (modal fuera del scroll) ── */
+function koShowImport(round, idx){
+  // Modal fijo en la parte inferior (bottom sheet) para que el teclado no lo tape
+  let modal = document.getElementById('koModal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'koModal';
+    document.body.appendChild(modal);
+  }
+  modal.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(5,14,30,0.99);border-top:2px solid rgba(50,100,200,0.5);border-radius:16px 16px 0 0;padding:18px 16px 28px;box-shadow:0 -8px 40px rgba(0,0,0,0.8);max-height:80vh;overflow-y:auto';
   const m = koGetMatch(round, idx);
   const extra = koGetExtra(round, idx);
   const rLabel = KO_STRUCTURE[round]?.label || round;
   modal.style.display = 'block';
   modal.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <div style="font-size:0.8rem;color:#7ab8ff;font-weight:700">📥 Importar puntos — ${rLabel} P${idx+1}</div>
-      <button onclick="koCloseModal()" style="background:none;border:none;color:var(--muted);font-size:1rem;cursor:pointer">✕</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div style="font-size:0.88rem;color:#7ab8ff;font-weight:700">📥 ${rLabel} — Partido ${idx+1}</div>
+      <button onclick="koCloseModal()" style="background:rgba(30,60,120,0.5);border:1px solid rgba(80,120,200,0.4);color:#aac4ff;font-size:0.82rem;cursor:pointer;padding:5px 14px;border-radius:8px;font-weight:600">✕ Cerrar</button>
     </div>
-    <div style="font-size:0.72rem;color:rgba(180,210,255,0.7);margin-bottom:4px">
-      ${m.a&&m.b ? `${FLAGS[m.a]||''} ${m.a} vs ${FLAGS[m.b]||''} ${m.b}` : 'Equipos no asignados aún'}
+    <div style="font-size:0.78rem;color:rgba(180,210,255,0.8);margin-bottom:12px;font-weight:600">
+      ${m.a&&m.b ? (FLAGS[m.a]||'') + ' ' + m.a + ' vs ' + (FLAGS[m.b]||'') + ' ' + m.b : 'Equipos no asignados'}
     </div>
-    <div style="font-size:0.68rem;color:rgba(150,180,220,0.5);margin-bottom:10px">Pega la URL del partido de Comuniazo:</div>
-    <textarea id="koUrlInput" rows="2" placeholder="https://fantasy.comuniazo.com/..." style="width:100%;background:rgba(10,22,40,0.9);border:1px solid rgba(40,80,140,0.5);border-radius:8px;color:#dce8f4;font-size:0.78rem;padding:8px;resize:vertical;box-sizing:border-box">${extra.url||''}</textarea>
-    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-      <button onclick="koImportUrl('${round}',${idx})" style="flex:1;background:linear-gradient(135deg,#1a5a30,#0e3a1e);border:1px solid rgba(76,175,125,0.4);color:#4ade80;border-radius:8px;padding:9px;font-size:0.8rem;font-weight:700;cursor:pointer">⬇️ Importar puntos</button>
-      ${extra.imported ? `<button onclick="koOpenMatchDetail('${round}',${idx})" style="background:rgba(30,60,120,0.4);border:1px solid rgba(100,160,255,0.3);color:#7ab8ff;border-radius:8px;padding:9px;font-size:0.8rem;cursor:pointer">📊 Ver puntos</button>` : ''}
+    <label style="font-size:0.72rem;color:rgba(150,180,220,0.6);display:block;margin-bottom:6px">URL del partido en Comuniazo:</label>
+    <input type="text" id="koUrlInput" inputmode="url" placeholder="https://fantasy.comuniazo.com/..." value="${(extra.url||'').replace(/"/g,'&quot;')}"
+      autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"
+      style="width:100%;background:rgba(8,20,44,0.98);border:2px solid rgba(60,120,220,0.55);border-radius:10px;color:#e8f0ff;font-size:0.88rem;padding:12px 14px;box-sizing:border-box;outline:none;-webkit-appearance:none;display:block;margin-bottom:14px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button onclick="koImportUrl('${round}',${idx})" style="flex:1;background:linear-gradient(135deg,#1a5a30,#0e3a1e);border:1px solid rgba(76,175,125,0.45);color:#4ade80;border-radius:10px;padding:12px;font-size:0.88rem;font-weight:700;cursor:pointer;min-width:140px">⬇️ Importar puntos</button>
+      ${extra.imported ? '<button onclick="koShowDetail(\''+round+'\','+idx+')" style="background:rgba(30,60,120,0.4);border:1px solid rgba(100,160,255,0.3);color:#7ab8ff;border-radius:10px;padding:12px;font-size:0.85rem;cursor:pointer">📊 Ver puntos</button>' : ''}
     </div>
-    <div id="koImportStatus" style="font-size:0.72rem;margin-top:8px;text-align:center;min-height:18px"></div>
+    <div id="koImportStatus" style="font-size:0.75rem;margin-top:12px;text-align:center;min-height:22px;color:rgba(180,210,255,0.65)"></div>
   `;
+  setTimeout(()=>{ const inp=document.getElementById('koUrlInput'); if(inp){ inp.focus(); inp.click(); } }, 150);
 }
+
+// Alias para compatibilidad con código antiguo
+function koOpenImport(round, idx){ koShowImport(round, idx); }
+
 
 async function koImportUrl(round, idx){
   const urlInput = document.getElementById('koUrlInput');
   const status = document.getElementById('koImportStatus');
-  const url = urlInput?.value?.trim();
-  if(!url){ status.innerHTML='<span style="color:orange">⚠️ Introduce una URL</span>'; return; }
+  const url = (urlInput?.value||'').trim();
+  if(!url){ if(status) status.innerHTML='<span style="color:orange">⚠️ Introduce una URL</span>'; return; }
   if(!adminOk()) return;
 
-  status.innerHTML = '<span style="color:#7ab8ff">⏳ Importando...</span>';
+  if(status) status.innerHTML = '<span style="color:#7ab8ff">⏳ Cargando...</span>';
 
-  // Reutilizar la misma lógica de importación de texto de Comuniazo
-  // Intentar fetch via proxy CORS o directamente
   let text = '';
   try {
     const resp = await fetch('https://api.allorigins.win/get?url='+encodeURIComponent(url));
@@ -3675,13 +3965,12 @@ async function koImportUrl(round, idx){
     const data = await resp.json();
     text = data.contents || '';
   } catch(e){
-    status.innerHTML='<span style="color:orange">⚠️ No se pudo cargar automáticamente. Pega el texto del partido manualmente.</span>';
-    // Mostrar textarea para pegado manual
+    if(status) status.innerHTML='<span style="color:rgba(255,180,50,0.9)">⚠️ No se pudo cargar automáticamente.</span>';
     koOpenImportManual(round, idx, url);
     return;
   }
 
-  if(!text){ status.innerHTML='<span style="color:orange">⚠️ Contenido vacío</span>'; return; }
+  if(!text){ if(status) status.innerHTML='<span style="color:orange">⚠️ Contenido vacío</span>'; return; }
   koParseAndSaveKoMatch(round, idx, url, text, status);
 }
 
@@ -3751,7 +4040,7 @@ function koParseAndSaveKoMatch(round, idx, url, text, statusEl){
 
     saveToLS();
     if(statusEl) statusEl.innerHTML=`<span style="color:#4ade80">✅ ${result.jugadores.length} jugadores importados. ${result.resultado?'Resultado: '+result.resultado:''}</span>`;
-    setTimeout(()=>{ koCloseModal(); renderKnockout(); renderTop(); }, 1200);
+    setTimeout(()=>{ koCloseModal(); renderKnockout(); renderTop10(); }, 1200);
 
   } catch(e){
     console.error(e);
@@ -3815,9 +4104,13 @@ function koCloseModal(){
 /* ── CLICK EN TARJETA ── */
 function koCardClick(round, idx){
   const extra = koGetExtra(round, idx);
-  if(extra.imported){ koOpenMatchDetail(round, idx); return; }
-  koToggleEdit(round, idx);
+  if(extra.imported){ koShowDetail(round, idx); return; }
+  koShowEdit(round, idx);
 }
+
+// Alias nombres nuevos → funciones existentes
+function koShowDetail(round, idx){ koOpenMatchDetail(round, idx); }
+function koShowEdit(round, idx){ koToggleEdit(round, idx); }
 
 /* Click rápido en equipo = seleccionar ganador */
 function koPickWinnerMarca(round, idx, slot){
@@ -5224,6 +5517,7 @@ function saveToLS(){
     prevPositions: DATA.prevPositions,
     knockout: DATA.knockout||{},
     koExtra: DATA.koExtra||{},
+    cambios: DATA.cambios||{},
     botas: DATA.botas||[],
     guantes: DATA.guantes||[],
     resultados: DATA.resultados||{},
@@ -5263,6 +5557,7 @@ function loadFromLS(){
       }
       DATA.knockout = parsed.knockout || {};
       if(parsed.koExtra) DATA.koExtra = parsed.koExtra;
+      if(parsed.cambios) DATA.cambios = parsed.cambios;
       if(parsed.botas) DATA.botas = parsed.botas;
       if(parsed.guantes) DATA.guantes = parsed.guantes;
       // Merge saved resultados into RESULTADOS y en DATA.resultados (para que lo que se ve coincida con lo que se guarda)
@@ -5280,6 +5575,7 @@ function loadFromLS(){
     }
     if(parsed.knockout) DATA.knockout = parsed.knockout;
     if(parsed.koExtra) DATA.koExtra = parsed.koExtra;
+    if(parsed.cambios) DATA.cambios = parsed.cambios;
     if(parsed.botas) DATA.botas = parsed.botas;
     if(parsed.guantes) DATA.guantes = parsed.guantes;
     return false;
