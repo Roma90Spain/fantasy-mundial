@@ -2768,15 +2768,27 @@ function renderRanking(){
       else if(diff<0) arrow=`<span class="pos-arrow down" title="Bajó ${Math.abs(diff)} puesto${Math.abs(diff)>1?'s':''}">▼${Math.abs(diff)}</span>`;
       else arrow='';
     }
-    li.innerHTML=`<button class="friend-head" onclick="toggleRoster(this)">
-      <div class="rank ${rc}">${rl}</div>
-      <div class="friend-name">${f.name}</div>
-      <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
-        ${arrow}
-        <div class="friend-score">${total} pts</div>
-      </div>
-      <div class="chevron">▼</div>
-    </button>
+    const cambiosHechos = (DATA.cambios||{})[f.name]?.length || 0;
+    const cambiosBadge = cambiosHechos > 0
+      ? `<span style="font-size:0.58rem;color:var(--accent);font-weight:700">${cambiosHechos}/3</span>`
+      : '';
+    li.innerHTML=`
+    <div style="display:flex;align-items:center">
+      <button class="friend-head" onclick="toggleRoster(this)" style="flex:1">
+        <div class="rank ${rc}">${rl}</div>
+        <div class="friend-name">${f.name}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+          ${arrow}
+          <div class="friend-score">${total} pts</div>
+        </div>
+        <div class="chevron">▼</div>
+      </button>
+      <button onclick="abrirCambios('${f.name}')" title="Cambios de jugadores"
+        style="flex-shrink:0;margin-left:4px;background:rgba(20,50,120,0.5);border:1px solid rgba(80,130,220,0.35);color:#7ab8ff;border-radius:8px;padding:6px 10px;font-size:0.78rem;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:44px;height:100%">
+        ✏️
+        ${cambiosBadge}
+      </button>
+    </div>
     <div class="roster"><div class="roster-inner">${buildRoster(f)}</div></div>`;
     ul.appendChild(li);
   });
@@ -2831,10 +2843,7 @@ function buildRoster(f){
     return `<div class="pos-group"><div class="pos-title">${labels[pos]}</div>${rows}</div>`;
   }).join('');
 
-  // Botón cambios (visible solo para admin — se muestra siempre pero requiere pass)
-  html += `<div style="margin-top:12px;text-align:center">
-    <button onclick="abrirCambios('${f.name}')" style="background:rgba(20,50,120,0.5);border:1px solid rgba(80,130,220,0.4);color:#7ab8ff;border-radius:8px;padding:7px 16px;font-size:0.78rem;cursor:pointer;font-weight:600">✏️ Cambios de jugadores${cambiosStr}</button>
-  </div>`;
+  // Botón cambios movido a la cabecera del ranking (siempre visible)
   return html;
 }
 
@@ -3090,13 +3099,14 @@ function cerrarCambios(){
 }
 
 function toggleRoster(btn){
-  const roster=btn.parentElement.querySelector('.roster');
-  const ch=btn.querySelector('.chevron');
-  const isOpen=roster.style.display==='block';
-  // close all
+  // El roster es hermano del div wrapper que contiene el button
+  const li = btn.closest('li.friend');
+  const roster = li ? li.querySelector('.roster') : btn.parentElement.querySelector('.roster');
+  const ch = btn.querySelector('.chevron');
+  const isOpen = roster && roster.style.display==='block';
   document.querySelectorAll('.roster').forEach(r=>r.style.display='none');
   document.querySelectorAll('.chevron').forEach(c=>c.style.transform='');
-  if(!isOpen){ roster.style.display='block'; ch.style.transform='rotate(180deg)'; }
+  if(!isOpen && roster){ roster.style.display='block'; if(ch) ch.style.transform='rotate(180deg)'; }
 }
 
 // ===== TOP 10 =====
@@ -3591,7 +3601,7 @@ function renderCalFinal(panel){
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;margin-left:8px">
           <span class="cal-time" style="font-size:0.7rem">${date}</span>
-          ${adminOk() ? importBtn : (extra.imported ? `<span style="font-size:0.62rem;color:var(--accent2)">✅</span>` : '')}
+          ${importBtn}
         </div>
       </div>`;
     }
