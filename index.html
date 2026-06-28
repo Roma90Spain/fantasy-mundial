@@ -3216,9 +3216,19 @@ function getScoreForPhase(playerName, phase){
 
 // Total de puntos de un amigo (suma de todas las fases con el equipo correcto en cada una)
 function getFriendTotal(f){
-  // Si no hay phasePoints todavía, usar sistema legacy
-  if(!DATA.phasePoints || !DATA.phasePoints['grupal']){
-    return f.team.reduce((s,p)=>{ let pts=getScore(p.name); return s+pts+(p.captain?pts:0); },0);
+  // Asegurar que phasePoints.grupal existe
+  if(!DATA.phasePoints) DATA.phasePoints = {};
+  if(!DATA.phasePoints['grupal'] || Object.keys(DATA.phasePoints['grupal']).length === 0){
+    // Reconstruir ahora mismo desde historialPartidos
+    DATA.phasePoints['grupal'] = {};
+    const grupalIds = new Set(CALENDARIO.map(c=>c.id));
+    Object.entries(DATA.historialPartidos||{}).forEach(([id, h])=>{
+      if(grupalIds.has(id)){
+        (h.jugadores||[]).forEach(j=>{
+          DATA.phasePoints['grupal'][j.nombre] = (DATA.phasePoints['grupal'][j.nombre]||0) + j.pts;
+        });
+      }
+    });
   }
 
   let total = 0;
@@ -6238,7 +6248,6 @@ function saveToLS(){
     koExtra: DATA.koExtra||{},
     cambios: DATA.cambios||{},
     cambiosByPhase: DATA.cambiosByPhase||{},
-    phasePoints: DATA.phasePoints||{},
     teamSnapshots: DATA.teamSnapshots||{},
     botas: DATA.botas||[],
     guantes: DATA.guantes||[],
