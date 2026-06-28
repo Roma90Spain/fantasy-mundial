@@ -3162,7 +3162,85 @@ const ADMIN_PASS = "mundial2026";
 
 // ===== HELPERS =====
 function getScore(n){ return DATA.playerBase[n] ?? 0; }
-function getFriendTotal(f){ return f.team.reduce((s,p)=>{ let pts=getScore(p.name); return s+pts+(p.captain?pts:0); },0); }
+
+// ===== SISTEMA DE PUNTOS POR FASE =====
+// Las fases en orden cronológico
+const PHASES_ORDER = ['grupal','d16','r16','qf','sf','f'];
+
+// Qué IDs de partido pertenecen a cada fase
+function getPhaseOfMatch(matchId){
+  if(!matchId) return 'grupal';
+  if(matchId.startsWith('d16')) return 'd16';
+  if(matchId.startsWith('r16')) return 'r16';
+  if(matchId.startsWith('qf'))  return 'qf';
+  if(matchId.startsWith('sf'))  return 'sf';
+  if(matchId.startsWith('f_'))  return 'f';
+  return 'grupal';
+}
+
+// Obtener el equipo de un amigo en una fase determinada (aplicando cambios de esa fase)
+function getTeamForPhase(f, phase){
+  // El equipo base es el original (grupal)
+  // Aplicamos los cambios de cada fase hasta la pedida
+  let team = f.team.map(p => ({...p})); // copia del equipo actual base
+
+  // Si hay teamSnapshots, usar el snapshot grupal como base
+  if(DATA.teamSnapshots && DATA.teamSnapshots[f.name] && DATA.teamSnapshots[f.name]['grupal']){
+    team = DATA.teamSnapshots[f.name]['grupal'].map(p => ({...p}));
+  }
+
+  // Aplicar cambios de fases anteriores e iguales a la pedida
+  const phases = PHASES_ORDER.slice(1); // d16, r16, qf, sf, f
+  for(const ph of phases){
+    const cambiosFase = ((DATA.cambiosByPhase||{})[f.name]||{})[ph]||[];
+    for(const c of cambiosFase){
+      const idx = team.findIndex(p => p.name === c.sale);
+      if(idx >= 0){
+        team[idx] = { name: c.entra, pos: team[idx].pos, captain: c.wasCapitan||false };
+      }
+      // Cambio de capitán
+      if(c.newCaptain){
+        team.forEach(p => p.captain = (p.name === c.newCaptain));
+      }
+    }
+    if(ph === phase) break;
+  }
+  return team;
+}
+
+// Puntos de un jugador en una fase específica
+function getScoreForPhase(playerName, phase){
+  if(!DATA.phasePoints || !DATA.phasePoints[phase]) return 0;
+  return DATA.phasePoints[phase][playerName] || 0;
+}
+
+// Total de puntos de un amigo (suma de todas las fases con el equipo correcto en cada una)
+function getFriendTotal(f){
+  // Si no hay phasePoints todavía, usar sistema legacy
+  if(!DATA.phasePoints || !DATA.phasePoints['grupal']){
+    return f.team.reduce((s,p)=>{ let pts=getScore(p.name); return s+pts+(p.captain?pts:0); },0);
+  }
+
+  let total = 0;
+  for(const phase of PHASES_ORDER){
+    const phaseData = DATA.phasePoints[phase];
+    if(!phaseData || Object.keys(phaseData).length === 0) continue;
+    const team = getTeamForPhase(f, phase);
+    for(const p of team){
+      const pts = phaseData[p.name] || 0;
+      total += pts + (p.captain ? pts : 0);
+    }
+  }
+  return total;
+}
+
+function getFriendPhaseTotal(f, phase){
+  const phaseData = (DATA.phasePoints||{})[phase];
+  if(!phaseData || Object.keys(phaseData).length === 0) return 0;
+  const team = getTeamForPhase(f, phase);
+  return team.reduce((s,p)=>{ const pts=phaseData[p.name]||0; return s+pts+(p.captain?pts:0); },0);
+}
+
 function getSorted(){ return [...DATA.friends].sort((a,b)=>getFriendTotal(b)-getFriendTotal(a)); }
 function setStatus(msg,err=false){ const s=document.getElementById('status'); s.textContent=msg; s.className='status'+(err?' error':''); }
 function closeAllPanels(){
@@ -3315,49 +3393,79 @@ function renderModalCambios(f){
     document.body.appendChild(modal);
   }
 
-  const hechos = (DATA.cambios||{})[f.name] || [];
-  const restantes = 3 - hechos.length;
+  const currentPhase = getCurrentPhase();
+  const phaseLabels = {grupal:'Fase de Grupos',d16:'Dieciseisavos',r16:'Octavos',qf:'Cuartos',sf:'Semis',f:'Final'};
+  const phaseName = phaseLabels[currentPhase] || currentPhase;
+
+  if(currentPhase === 'grupal'){
+    modal.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div style="font-size:0.9rem;color:#7ab8ff;font-weight:700">✏️ Cambios — ${f.name}</div>
+        <button onclick="cerrarCambios()" style="background:rgba(30,60,120,0.5);border:1px solid rgba(80,120,200,0.4);color:#aac4ff;font-size:0.82rem;cursor:pointer;padding:5px 14px;border-radius:8px">✕ Cerrar</button>
+      </div>
+      <div style="color:#f87171;font-size:0.8rem;padding:12px">⚠️ Los cambios se habilitarán al importar el primer partido de Dieciseisavos.</div>`;
+    modal.style.display = 'block';
+    return;
+  }
+
+  const hechosFase = ((DATA.cambiosByPhase||{})[f.name]||{})[currentPhase]||[];
+  const cambiosJug = hechosFase.filter(c=>c.sale&&c.entra);
+  const cambiosCap = hechosFase.filter(c=>c.newCaptain);
+  const restantes = 3 - cambiosJug.length;
+  const capUsado = cambiosCap.length > 0;
+
+  // Equipo en la fase actual
+  const teamFase = getTeamForPhase(f, currentPhase);
 
   const posLabels = {'1.Portero':'🧤 PT','2.Defensa':'🛡️ DF','3.Mediocentro':'⚙️ MC','4.Delantero':'⚡ DL'};
 
-  let jugadoresHtml = f.team.map((p,idx)=>{
-    const pts = getScore(p.name);
+  let jugadoresHtml = teamFase.map((p,idx)=>{
+    const pts = (DATA.phasePoints&&DATA.phasePoints[currentPhase]&&DATA.phasePoints[currentPhase][p.name]) || 0;
     const db = PLAYERS_DB[p.name];
     const flag = db?(FLAGS[db[1]]||''):'';
     const eff = pts*(p.captain?2:1);
     const cap = p.captain ? '<span style="background:#f0c040;color:#000;font-size:0.55rem;font-weight:800;padding:1px 5px;border-radius:4px;margin-left:4px">C</span>' : '';
-    const fueReemplazado = hechos.some(c=>c.sale===p.name);
-    const esNuevo = hechos.some(c=>c.entra===p.name);
+    const fueReemplazado = cambiosJug.some(c=>c.sale===p.name);
+    const esNuevo = cambiosJug.some(c=>c.entra===p.name);
     const badge = fueReemplazado ? '<span style="font-size:0.6rem;color:#f87171;margin-left:4px">↗ salió</span>' :
                   esNuevo        ? '<span style="font-size:0.6rem;color:#4ade80;margin-left:4px">↙ entró</span>' : '';
     const posL = posLabels[p.pos]||p.pos;
+    const canSwap = restantes>0 && !fueReemplazado;
+    const canMakeCap = !p.captain && !capUsado;
     return `<div style="display:flex;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid rgba(30,60,100,0.35)">
       <span style="font-size:0.62rem;color:var(--muted);min-width:28px;text-align:center">${posL}</span>
       <span style="flex:1;font-size:0.82rem;color:#dce8f4">${flag} ${p.name}${cap}${badge}</span>
       <span style="font-size:0.75rem;color:${eff>0?'var(--accent2)':'var(--muted)'};font-weight:700">${eff} pts</span>
       <div style="display:flex;gap:5px">
-        ${restantes>0 && !fueReemplazado ? `<button onclick="iniciarCambio('${f.name}',${idx})" style="font-size:0.68rem;background:rgba(30,60,130,0.5);border:1px solid rgba(80,130,220,0.4);color:#7ab8ff;border-radius:6px;padding:3px 10px;cursor:pointer">🔄 cambiar</button>` : ''}
-        <button onclick="toggleCapitanCambio('${f.name}',${idx})" style="font-size:0.68rem;background:${p.captain?'rgba(180,140,0,0.3)':'rgba(30,40,60,0.5)'};border:1px solid ${p.captain?'rgba(240,192,64,0.5)':'rgba(60,80,120,0.3)'};color:${p.captain?'#f0c040':'#aaa'};border-radius:6px;padding:3px 10px;cursor:pointer">${p.captain?'⭐ Capitán':'☆ Cap'}</button>
+        ${canSwap ? `<button onclick="iniciarCambio('${f.name}',${idx})" style="font-size:0.68rem;background:rgba(30,60,130,0.5);border:1px solid rgba(80,130,220,0.4);color:#7ab8ff;border-radius:6px;padding:3px 10px;cursor:pointer">🔄</button>` : ''}
+        ${canMakeCap ? `<button onclick="confirmarCambioCap('${f.name}','${p.name}')" style="font-size:0.68rem;background:rgba(30,40,60,0.5);border:1px solid rgba(60,80,120,0.3);color:#aaa;border-radius:6px;padding:3px 10px;cursor:pointer">☆ Cap</button>` : ''}
+        ${p.captain ? `<span style="font-size:0.68rem;color:#f0c040;padding:3px 10px">⭐ Cap</span>` : ''}
       </div>
     </div>`;
   }).join('');
 
-  // Historial de cambios ya realizados
+  // Historial de cambios de esta fase
   let historialHtml = '';
-  if(hechos.length){
-    historialHtml = `<div style="margin-top:10px;font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Cambios realizados</div>` +
-    hechos.map((c,i)=>`<div style="font-size:0.72rem;color:rgba(180,210,255,0.7);padding:3px 0;display:flex;gap:6px;align-items:center">
-      <span style="color:#f87171">${c.sale}</span> → <span style="color:#4ade80">${c.entra}</span>
-      <span style="margin-left:auto;font-size:0.62rem;color:var(--muted)">${c.fecha||''}</span>
-    </div>`).join('');
+  if(hechosFase.length){
+    historialHtml = `<div style="margin-top:10px;font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Cambios en ${phaseName}</div>` +
+    hechosFase.map(c=>
+      c.newCaptain
+        ? `<div style="font-size:0.72rem;color:rgba(240,192,64,0.8);padding:3px 0">⭐ Nuevo capitán: ${c.newCaptain} <span style="color:var(--muted);font-size:0.62rem">${c.fecha||''}</span></div>`
+        : `<div style="font-size:0.72rem;color:rgba(180,210,255,0.7);padding:3px 0;display:flex;gap:6px;align-items:center">
+            <span style="color:#f87171">${c.sale}</span> → <span style="color:#4ade80">${c.entra}</span>
+            <span style="margin-left:auto;font-size:0.62rem;color:var(--muted)">${c.fecha||''}</span>
+          </div>`
+    ).join('');
   }
 
   modal.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div>
         <div style="font-size:0.9rem;color:#7ab8ff;font-weight:700">✏️ Cambios — ${f.name}</div>
+        <div style="font-size:0.7rem;color:rgba(180,210,255,0.6);margin-top:2px">📍 ${phaseName}</div>
         <div style="font-size:0.7rem;color:${restantes>0?'rgba(180,210,255,0.6)':'#f87171'};margin-top:2px">
-          ${restantes>0 ? `${restantes} cambio${restantes!==1?'s':''} disponible${restantes!==1?'s':''}` : '⚠️ Límite de 3 cambios alcanzado'}
+          ${restantes>0 ? `${restantes} cambio${restantes!==1?'s':''} disponible${restantes!==1?'s':''}` : '⚠️ Sin cambios restantes en esta fase'}
+          ${capUsado ? ' · Capitán ya cambiado' : ' · Cambio de capitán disponible'}
         </div>
       </div>
       <button onclick="cerrarCambios()" style="background:rgba(30,60,120,0.5);border:1px solid rgba(80,120,200,0.4);color:#aac4ff;font-size:0.82rem;cursor:pointer;padding:5px 14px;border-radius:8px">✕ Cerrar</button>
@@ -3449,53 +3557,112 @@ function filtrarJugadoresCambio(friendName, playerIdx, query){
   }).join('');
 }
 
+function getCurrentPhase(){
+  // Determinar la fase actual basándonos en qué partidos se han importado
+  if(!DATA.phasePoints) return 'grupal';
+  if(DATA.phasePoints['f']   && Object.keys(DATA.phasePoints['f']).length)   return 'f';
+  if(DATA.phasePoints['sf']  && Object.keys(DATA.phasePoints['sf']).length)  return 'sf';
+  if(DATA.phasePoints['qf']  && Object.keys(DATA.phasePoints['qf']).length)  return 'qf';
+  if(DATA.phasePoints['r16'] && Object.keys(DATA.phasePoints['r16']).length) return 'r16';
+  if(DATA.phasePoints['d16'] && Object.keys(DATA.phasePoints['d16']).length) return 'd16';
+  return 'grupal';
+}
+
 function confirmarCambio(friendName, playerIdx, jugadorEntra, posEntra){
   const f = DATA.friends.find(x=>x.name===friendName);
   if(!f) return;
-  const jugadorSale = f.team[playerIdx];
 
-  const hechos = (DATA.cambios||{})[friendName] || [];
-  if(hechos.length >= 3){
-    alert('⚠️ Este equipo ya ha usado sus 3 cambios permitidos.');
+  const currentPhase = getCurrentPhase();
+  if(currentPhase === 'grupal'){
+    alert('⚠️ Los cambios solo están disponibles en fases eliminatorias.');
     return;
   }
 
-  const hoy = new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit'});
-  const msg = `¿Confirmar cambio?\n\n❌ Sale: ${jugadorSale.name}\n✅ Entra: ${jugadorEntra}\n\n⚠️ Este cambio es definitivo y cuenta para el límite de 3.`;
+  if(!DATA.cambiosByPhase) DATA.cambiosByPhase = {};
+  if(!DATA.cambiosByPhase[friendName]) DATA.cambiosByPhase[friendName] = {};
+  if(!DATA.cambiosByPhase[friendName][currentPhase]) DATA.cambiosByPhase[friendName][currentPhase] = [];
 
+  const hechosFase = DATA.cambiosByPhase[friendName][currentPhase];
+  // Contar solo cambios de jugadores (no cambios de capitán puros)
+  const cambiosJugadores = hechosFase.filter(c => c.sale && c.entra);
+  if(cambiosJugadores.length >= 3){
+    alert('⚠️ Ya has usado los 3 cambios de esta fase.');
+    return;
+  }
+
+  // Obtener equipo en la fase actual
+  const teamFase = getTeamForPhase(f, currentPhase);
+  const jugadorSale = teamFase[playerIdx];
+  if(!jugadorSale){ alert('Jugador no encontrado en el equipo de esta fase.'); return; }
+
+  const phaseLabels = {d16:'Dieciseisavos',r16:'Octavos',qf:'Cuartos',sf:'Semis',f:'Final'};
+  const msg = `¿Confirmar cambio en ${phaseLabels[currentPhase]}?\n\n❌ Sale: ${jugadorSale.name}\n✅ Entra: ${jugadorEntra}\n\n⚠️ Este cambio es definitivo para esta fase.`;
   if(!confirm(msg)) return;
 
-  // Aplicar cambio
-  const wasCapitan = jugadorSale.captain;
-  f.team[playerIdx] = { name: jugadorEntra, pos: f.team[playerIdx].pos, captain: wasCapitan };
-
-  // Registrar en historial
-  if(!DATA.cambios) DATA.cambios = {};
-  if(!DATA.cambios[friendName]) DATA.cambios[friendName] = [];
-  DATA.cambios[friendName].push({
+  const hoy = new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit'});
+  hechosFase.push({
     sale: jugadorSale.name,
     entra: jugadorEntra,
     pos: jugadorSale.pos,
+    wasCapitan: jugadorSale.captain||false,
     fecha: hoy
   });
+
+  // Mantener DATA.cambios legacy para compatibilidad
+  if(!DATA.cambios) DATA.cambios = {};
+  if(!DATA.cambios[friendName]) DATA.cambios[friendName] = [];
+  DATA.cambios[friendName].push({ sale: jugadorSale.name, entra: jugadorEntra, pos: jugadorSale.pos, fecha: hoy });
 
   saveToLS();
   renderRanking();
 
-  // Reabrir modal con plantilla actualizada
   const fActualizado = DATA.friends.find(x=>x.name===friendName);
   renderModalCambios(fActualizado);
 
-  // Aviso
+  const restantes = 3 - (hechosFase.filter(c=>c.sale&&c.entra).length);
   setTimeout(()=>{
-    const hechos2 = DATA.cambios[friendName]?.length || 0;
-    const restantes2 = 3 - hechos2;
-    if(restantes2 === 0){
-      alert(`✅ Cambio realizado.\n\n⚠️ ${friendName} ha usado sus 3 cambios. No podrá hacer más.`);
+    if(restantes === 0){
+      alert(`✅ Cambio realizado.\n\n⚠️ ${friendName} ha usado sus 3 cambios de ${phaseLabels[currentPhase]}.`);
     } else {
-      alert(`✅ Cambio aplicado: ${jugadorSale.name} → ${jugadorEntra}\n\nQuedan ${restantes2} cambio${restantes2!==1?'s':''} disponibles para ${friendName}.`);
+      alert(`✅ ${jugadorSale.name} → ${jugadorEntra}\n\nQuedan ${restantes} cambio${restantes!==1?'s':''} en ${phaseLabels[currentPhase]}.`);
     }
   }, 100);
+}
+
+function confirmarCambioCap(friendName, nuevoCapitan){
+  const f = DATA.friends.find(x=>x.name===friendName);
+  if(!f) return;
+
+  const currentPhase = getCurrentPhase();
+  if(currentPhase === 'grupal'){
+    alert('⚠️ El cambio de capitán solo está disponible en fases eliminatorias.');
+    return;
+  }
+
+  if(!DATA.cambiosByPhase) DATA.cambiosByPhase = {};
+  if(!DATA.cambiosByPhase[friendName]) DATA.cambiosByPhase[friendName] = {};
+  if(!DATA.cambiosByPhase[friendName][currentPhase]) DATA.cambiosByPhase[friendName][currentPhase] = [];
+
+  const hechosFase = DATA.cambiosByPhase[friendName][currentPhase];
+  const cambiosCap = hechosFase.filter(c => c.newCaptain);
+  if(cambiosCap.length >= 1){
+    alert('⚠️ Ya has cambiado de capitán en esta fase.');
+    return;
+  }
+
+  const teamFase = getTeamForPhase(f, currentPhase);
+  const capActual = teamFase.find(p=>p.captain);
+  const msg = `¿Cambiar capitán en esta fase?\n\n❌ Capitán actual: ${capActual?capActual.name:'ninguno'}\n✅ Nuevo capitán: ${nuevoCapitan}`;
+  if(!confirm(msg)) return;
+
+  const hoy = new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit'});
+  hechosFase.push({ newCaptain: nuevoCapitan, fecha: hoy });
+
+  saveToLS();
+  renderRanking();
+  const fActualizado = DATA.friends.find(x=>x.name===friendName);
+  renderModalCambios(fActualizado);
+  setTimeout(()=>{ alert(`✅ ${nuevoCapitan} es el nuevo capitán para esta fase.`); }, 100);
 }
 
 function toggleCapitanCambio(friendName, playerIdx){
@@ -3696,6 +3863,18 @@ document.getElementById('partidoImportBtn').addEventListener('click', function()
   DATA.prevPositions={};
   snapSorted.forEach((f,i)=>{ DATA.prevPositions[f.name]=i; });
 
+  // Inicializar phasePoints y teamSnapshots si no existen
+  if(!DATA.phasePoints) DATA.phasePoints={};
+  if(!DATA.phasePoints['grupal']) DATA.phasePoints['grupal']={};
+  if(!DATA.teamSnapshots) DATA.teamSnapshots={};
+  // Hacer snapshot del equipo grupal para cada amigo (solo la primera vez)
+  DATA.friends.forEach(fr=>{
+    if(!DATA.teamSnapshots[fr.name]) DATA.teamSnapshots[fr.name]={};
+    if(!DATA.teamSnapshots[fr.name]['grupal']){
+      DATA.teamSnapshots[fr.name]['grupal'] = fr.team.map(p=>({...p}));
+    }
+  });
+
   // Parser dual: detecta si el formato es "Nombre\nPuntos" (Comuniazo) o "Nombre Puntos" (una línea)
   const lines=texto.split('\n').map(l=>l.trim()).filter(Boolean);
   const numOnlyRe=/^-?\d+$/;
@@ -3731,6 +3910,7 @@ document.getElementById('partidoImportBtn').addEventListener('click', function()
         if(match){
           // SUMA en vez de sobreescribir
           DATA.playerBase[match]=(DATA.playerBase[match]||0)+pts;
+          DATA.phasePoints['grupal'][match]=(DATA.phasePoints['grupal'][match]||0)+pts;
           jugadores.push({nombre:match,pts});
         }
         i+=2;
@@ -3749,7 +3929,7 @@ document.getElementById('partidoImportBtn').addEventListener('click', function()
       const nombre=parts.slice(0,parts.length-1).join(' ');
       const match=tryMatch(nombre);
       // SUMA en vez de sobreescribir
-      if(match){ DATA.playerBase[match]=(DATA.playerBase[match]||0)+pts; jugadores.push({nombre:match,pts}); }
+      if(match){ DATA.playerBase[match]=(DATA.playerBase[match]||0)+pts; DATA.phasePoints['grupal'][match]=(DATA.phasePoints['grupal'][match]||0)+pts; jugadores.push({nombre:match,pts}); }
     });
   }
 
@@ -4473,8 +4653,22 @@ function koParseAndSaveKoMatch(round, idx, url, text, statusEl){
       return;
     }
 
-    // Actualizar DATA.playerBase con los puntos del partido
-    result.jugadores.forEach(j=>{ DATA.playerBase[j.nombre]=(DATA.playerBase[j.nombre]||0)+j.pts; });
+    // Actualizar DATA.playerBase y DATA.phasePoints con los puntos del partido
+    const matchPhase = getPhaseOfMatch(round + '_' + idx);
+    if(!DATA.phasePoints) DATA.phasePoints = {};
+    if(!DATA.phasePoints[matchPhase]) DATA.phasePoints[matchPhase] = {};
+    // Snapshot del equipo al inicio de esta fase (si no existe)
+    if(!DATA.teamSnapshots) DATA.teamSnapshots = {};
+    DATA.friends.forEach(fr=>{
+      if(!DATA.teamSnapshots[fr.name]) DATA.teamSnapshots[fr.name]={};
+      if(!DATA.teamSnapshots[fr.name][matchPhase]){
+        DATA.teamSnapshots[fr.name][matchPhase] = getTeamForPhase(fr, matchPhase).map(p=>({...p}));
+      }
+    });
+    result.jugadores.forEach(j=>{
+      DATA.playerBase[j.nombre]=(DATA.playerBase[j.nombre]||0)+j.pts;
+      DATA.phasePoints[matchPhase][j.nombre]=(DATA.phasePoints[matchPhase][j.nombre]||0)+j.pts;
+    });
 
     // Guardar extra data del partido
     const extra = {
@@ -5993,6 +6187,9 @@ function saveToLS(){
     knockout: DATA.knockout||{},
     koExtra: DATA.koExtra||{},
     cambios: DATA.cambios||{},
+    cambiosByPhase: DATA.cambiosByPhase||{},
+    phasePoints: DATA.phasePoints||{},
+    teamSnapshots: DATA.teamSnapshots||{},
     botas: DATA.botas||[],
     guantes: DATA.guantes||[],
     resultados: DATA.resultados||{},
@@ -6033,6 +6230,9 @@ function loadFromLS(){
       DATA.knockout = parsed.knockout || {};
       if(parsed.koExtra) DATA.koExtra = parsed.koExtra;
       if(parsed.cambios) DATA.cambios = parsed.cambios;
+      if(parsed.cambiosByPhase) DATA.cambiosByPhase = parsed.cambiosByPhase;
+      if(parsed.phasePoints) DATA.phasePoints = parsed.phasePoints;
+      if(parsed.teamSnapshots) DATA.teamSnapshots = parsed.teamSnapshots;
       if(parsed.botas) DATA.botas = parsed.botas;
       if(parsed.guantes) DATA.guantes = parsed.guantes;
       // Merge saved resultados into RESULTADOS y en DATA.resultados (para que lo que se ve coincida con lo que se guarda)
@@ -6051,6 +6251,9 @@ function loadFromLS(){
     if(parsed.knockout) DATA.knockout = parsed.knockout;
     if(parsed.koExtra) DATA.koExtra = parsed.koExtra;
     if(parsed.cambios) DATA.cambios = parsed.cambios;
+    if(parsed.cambiosByPhase) DATA.cambiosByPhase = parsed.cambiosByPhase;
+    if(parsed.phasePoints) DATA.phasePoints = parsed.phasePoints;
+    if(parsed.teamSnapshots) DATA.teamSnapshots = parsed.teamSnapshots;
     if(parsed.botas) DATA.botas = parsed.botas;
     if(parsed.guantes) DATA.guantes = parsed.guantes;
     return false;
@@ -6088,6 +6291,61 @@ closeAllPanels();
 // Reset group select to default
 const gs = document.getElementById('grupoSelect');
 if(gs) gs.value = '';
+
+// ===== RECONSTRUIR phasePoints desde historialPartidos (compatibilidad con datos existentes) =====
+(function migratePhasePoints(){
+  if(!DATA.phasePoints) DATA.phasePoints = {};
+  if(!DATA.teamSnapshots) DATA.teamSnapshots = {};
+  if(!DATA.cambiosByPhase) DATA.cambiosByPhase = {};
+
+  // Reconstruir grupal desde historialPartidos de grupos
+  if(!DATA.phasePoints['grupal'] || Object.keys(DATA.phasePoints['grupal']).length === 0){
+    DATA.phasePoints['grupal'] = {};
+    const grupalIds = new Set(CALENDARIO.map(c=>c.id));
+    Object.entries(DATA.historialPartidos||{}).forEach(([id, h])=>{
+      if(grupalIds.has(id)){
+        (h.jugadores||[]).forEach(j=>{
+          DATA.phasePoints['grupal'][j.nombre] = (DATA.phasePoints['grupal'][j.nombre]||0) + j.pts;
+        });
+      }
+    });
+  }
+
+  // Reconstruir fases KO desde koExtra
+  const koPhases = ['d16','r16','qf','sf','f'];
+  koPhases.forEach(phase=>{
+    if(!DATA.phasePoints[phase]) DATA.phasePoints[phase] = {};
+    const extra = DATA.koExtra||{};
+    // koExtra keys are like "d16_0", "r16_0", etc.
+    Object.entries(extra).forEach(([key, e])=>{
+      if(key.startsWith(phase.replace('_','')) && e.jugadores){
+        e.jugadores.forEach(j=>{
+          DATA.phasePoints[phase][j.nombre] = (DATA.phasePoints[phase][j.nombre]||0) + j.pts;
+        });
+      }
+    });
+  });
+
+  // Hacer snapshot grupal de todos los amigos si no existe
+  DATA.friends.forEach(fr=>{
+    if(!DATA.teamSnapshots[fr.name]) DATA.teamSnapshots[fr.name]={};
+    if(!DATA.teamSnapshots[fr.name]['grupal']){
+      DATA.teamSnapshots[fr.name]['grupal'] = fr.team.map(p=>({...p}));
+    }
+  });
+
+  // Migrar DATA.cambios legacy a DATA.cambiosByPhase['d16']
+  // (los cambios hechos antes de este update se asumen como d16)
+  if(DATA.cambios && Object.keys(DATA.cambios).length > 0 && 
+     (!DATA.cambiosByPhase || Object.keys(DATA.cambiosByPhase).length === 0)){
+    DATA.cambiosByPhase = {};
+    Object.entries(DATA.cambios).forEach(([friendName, cambios])=>{
+      if(cambios.length > 0){
+        DATA.cambiosByPhase[friendName] = { d16: cambios.map(c=>({...c, wasCapitan:false})) };
+      }
+    });
+  }
+})();
 
 renderRankingAnimated();
 updateLastImportedBadge();
