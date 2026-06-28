@@ -5167,7 +5167,9 @@ document.getElementById('saveBtn').addEventListener('click',()=>{
 document.getElementById('clearCacheBtn').addEventListener('click',()=>{
   if(!confirm('¿Limpiar la caché local y recargar? Se cargará la versión actualizada de la web.\nTus amigos pueden hacer lo mismo si ven datos desactualizados.')) return;
   try{ localStorage.removeItem(LS_KEY); } catch(e){}
-  location.reload(true);
+  // Force cache-busting reload for Android Chrome
+  const url = location.href.split('?')[0] + '?v=' + Date.now();
+  location.replace(url);
 });
 
 document.getElementById('backupBtn').addEventListener('click',()=>{
@@ -6357,10 +6359,10 @@ function updateLastImportedBadge(){
 
 // ===== INIT =====
 const loadedFromLS = loadFromLS();
-// Recalcula SIEMPRE los puntos totales de cada jugador a partir del detalle de los partidos
-// (DATA.historialPartidos), en vez de fiarse de un total cacheado aparte que podía quedarse
-// desactualizado en el localStorage del navegador y "revertir" correcciones manuales.
+// SIEMPRE recalcular playerBase desde historialPartidos (nunca fiarse del LS)
 recomputePlayerBase();
+// SIEMPRE resetear phasePoints para que se reconstruya desde cero
+DATA.phasePoints = {};
 if(!DATA.resultados) DATA.resultados={};
 Object.assign(RESULTADOS, DATA.resultados);
 
