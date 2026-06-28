@@ -3214,33 +3214,44 @@ function getScoreForPhase(playerName, phase){
   return DATA.phasePoints[phase][playerName] || 0;
 }
 
-// Total de puntos de un amigo (suma de todas las fases con el equipo correcto en cada una)
+// Total de puntos de un amigo calculado directamente desde historialPartidos + koExtra
+// usando el equipo correcto en cada fase
 function getFriendTotal(f){
-  // Asegurar que phasePoints.grupal existe
-  if(!DATA.phasePoints) DATA.phasePoints = {};
-  if(!DATA.phasePoints['grupal'] || Object.keys(DATA.phasePoints['grupal']).length === 0){
-    // Reconstruir ahora mismo desde historialPartidos
-    DATA.phasePoints['grupal'] = {};
-    const grupalIds = new Set(CALENDARIO.map(c=>c.id));
-    Object.entries(DATA.historialPartidos||{}).forEach(([id, h])=>{
-      if(grupalIds.has(id)){
-        (h.jugadores||[]).forEach(j=>{
-          DATA.phasePoints['grupal'][j.nombre] = (DATA.phasePoints['grupal'][j.nombre]||0) + j.pts;
-        });
+  const GRUPAL_IDS = new Set(CALENDARIO.map(c=>c.id));
+  let total = 0;
+
+  // ── FASE DE GRUPOS: equipo original (f.team del HTML, sin cambios) ──
+  const teamGrupal = f.team.map(p=>p.name);
+  const capGrupal  = (f.team.find(p=>p.captain)||{}).name;
+  Object.entries(DATA.historialPartidos||{}).forEach(([id, h])=>{
+    if(!GRUPAL_IDS.has(id)) return;
+    (h.jugadores||[]).forEach(j=>{
+      if(teamGrupal.includes(j.nombre)){
+        const eff = j.pts * (j.nombre===capGrupal ? 2 : 1);
+        total += eff;
       }
     });
-  }
+  });
 
-  let total = 0;
-  for(const phase of PHASES_ORDER){
-    const phaseData = DATA.phasePoints[phase];
-    if(!phaseData || Object.keys(phaseData).length === 0) continue;
-    const team = getTeamForPhase(f, phase);
-    for(const p of team){
-      const pts = phaseData[p.name] || 0;
-      total += pts + (p.captain ? pts : 0);
-    }
-  }
+  // ── FASES KO: equipo de cada fase (aplicando cambiosByPhase) ──
+  const KO_PHASES = ['d16','r16','qf','sf','f'];
+  KO_PHASES.forEach(phase=>{
+    const teamFase = getTeamForPhase(f, phase);
+    const teamNames = teamFase.map(p=>p.name);
+    const capFase   = (teamFase.find(p=>p.captain)||{}).name;
+    Object.entries(DATA.koExtra||{}).forEach(([key, e])=>{
+      // koExtra keys: 'd16_0', 'r16_0', 'qf_0', 'sf_0', 'f_0'
+      const keyPhase = getPhaseOfMatch(key);
+      if(keyPhase !== phase) return;
+      (e.jugadores||[]).forEach(j=>{
+        if(teamNames.includes(j.nombre)){
+          const eff = j.pts * (j.nombre===capFase ? 2 : 1);
+          total += eff;
+        }
+      });
+    });
+  });
+
   return total;
 }
 
@@ -3347,10 +3358,24 @@ function buildRoster(f){
     cambiosFase.forEach(c => { sustitucionMap[c.sale] = {entra: c.entra, fase: ph}; });
   });
 
-  // Puntos de grupos para cada jugador
-  const ptsGrupal = (DATA.phasePoints&&DATA.phasePoints['grupal']) || {};
-  // Puntos de la fase actual
-  const ptsFaseActual = (DATA.phasePoints&&DATA.phasePoints[currentPhase]) || {};
+  // Calcular puntos de grupos por jugador directamente desde historialPartidos
+  const GRUPAL_IDS = new Set(CALENDARIO.map(c=>c.id));
+  const ptsGrupalMap = {};
+  Object.entries(DATA.historialPartidos||{}).forEach(([id,h])=>{
+    if(!GRUPAL_IDS.has(id)) return;
+    (h.jugadores||[]).forEach(j=>{
+      ptsGrupalMap[j.nombre] = (ptsGrupalMap[j.nombre]||0) + j.pts;
+    });
+  });
+
+  // Calcular puntos de fase actual por jugador desde koExtra
+  const ptsFaseMap = {};
+  Object.entries(DATA.koExtra||{}).forEach(([key,e])=>{
+    if(getPhaseOfMatch(key) !== currentPhase) return;
+    (e.jugadores||[]).forEach(j=>{
+      ptsFaseMap[j.nombre] = (ptsFaseMap[j.nombre]||0) + j.pts;
+    });
+  });
 
   // Posición del jugador que entró (heredada del que salió)
   const teamActual = getTeamForPhase(f, currentPhase);
@@ -3363,7 +3388,7 @@ function buildRoster(f){
   html += Object.entries(byPos).map(([pos, players])=>{
     if(!players.length) return '';
     const rows = players.map(p=>{
-      const pG = (ptsGrupal[p.name]||0);
+      const pG = (ptsGrupalMap[p.name]||0);
       const effG = pG * (p.captain ? 2 : 1);
       const _db = PLAYERS_DB[p.name]; const _flag = _db?(FLAGS[_db[1]]||''):'';
       const cap = p.captain ? `<span class="captain-badge">C</span>` : '';
@@ -3372,7 +3397,7 @@ function buildRoster(f){
       if(sust && currentPhase !== 'grupal'){
         // Este jugador salió — mostrarlo tachado + debajo el que entró
         const pE = sust.entra;
-        const ptsFaseE = ptsFaseActual[pE]||0;
+        const ptsFaseE = ptsFaseMap[pE]||0;
         // Capitán puede haber cambiado en fase actual
         const teamActualPlayer = teamActual.find(x=>x.name===pE);
         const esCapNuevo = teamActualPlayer&&teamActualPlayer.captain;
