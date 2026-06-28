@@ -6250,7 +6250,6 @@ function saveToLS(){
     koExtra: DATA.koExtra||{},
     cambios: DATA.cambios||{},
     cambiosByPhase: DATA.cambiosByPhase||{},
-    teamSnapshots: DATA.teamSnapshots||{},
     botas: DATA.botas||[],
     guantes: DATA.guantes||[],
     resultados: DATA.resultados||{},
@@ -6288,7 +6287,6 @@ function loadFromLS(){
       if(parsed.koExtra)         DATA.koExtra         = parsed.koExtra;
       if(parsed.cambios)         DATA.cambios         = parsed.cambios;
       if(parsed.cambiosByPhase)  DATA.cambiosByPhase  = parsed.cambiosByPhase;
-      if(parsed.teamSnapshots)   DATA.teamSnapshots   = parsed.teamSnapshots;
       if(parsed.botas)           DATA.botas           = parsed.botas;
       if(parsed.guantes)         DATA.guantes         = parsed.guantes;
       if(parsed.resultados){
@@ -6311,8 +6309,7 @@ function loadFromLS(){
       if(parsed.cambiosByPhase) DATA.cambiosByPhase = parsed.cambiosByPhase;
       // phasePoints always recalculated by migratePhasePoints - never load from LS
       DATA.phasePoints = {};
-      if(parsed.teamSnapshots) DATA.teamSnapshots = parsed.teamSnapshots;
-      if(parsed.botas) DATA.botas = parsed.botas;
+        if(parsed.botas) DATA.botas = parsed.botas;
       if(parsed.guantes) DATA.guantes = parsed.guantes;
       // Merge saved resultados into RESULTADOS y en DATA.resultados (para que lo que se ve coincida con lo que se guarda)
       if(parsed.resultados){
@@ -6333,7 +6330,6 @@ function loadFromLS(){
     if(parsed.cambiosByPhase) DATA.cambiosByPhase = parsed.cambiosByPhase;
     // phasePoints always recalculated - never load from LS
     DATA.phasePoints = {};
-    if(parsed.teamSnapshots) DATA.teamSnapshots = parsed.teamSnapshots;
     if(parsed.botas) DATA.botas = parsed.botas;
     if(parsed.guantes) DATA.guantes = parsed.guantes;
     return false;
@@ -6361,8 +6357,9 @@ function updateLastImportedBadge(){
 const loadedFromLS = loadFromLS();
 // SIEMPRE recalcular playerBase desde historialPartidos (nunca fiarse del LS)
 recomputePlayerBase();
-// SIEMPRE resetear phasePoints para que se reconstruya desde cero
+// SIEMPRE resetear phasePoints y teamSnapshots para que se reconstruyan desde cero
 DATA.phasePoints = {};
+DATA.teamSnapshots = {};
 if(!DATA.resultados) DATA.resultados={};
 Object.assign(RESULTADOS, DATA.resultados);
 
@@ -6427,6 +6424,18 @@ if(gs) gs.value = '';
   }
 })();
 
+// DIAGNÓSTICO TEMPORAL
+(function diagAlvaro(){
+  const f = DATA.friends.find(x=>x.name==='Alvaro');
+  if(!f) return;
+  const pp = DATA.phasePoints||{};
+  const cBP = (DATA.cambiosByPhase||{})['Alvaro'];
+  const tS = (DATA.teamSnapshots||{})['Alvaro'];
+  const teamG = getTeamForPhase(f,'grupal').map(p=>p.name);
+  const teamD = getTeamForPhase(f,'d16').map(p=>p.name);
+  const total = getFriendTotal(f);
+  console.log('DIAG|grupalKeys:'+Object.keys(pp['grupal']||{}).length+'|cambiosByPhase:'+JSON.stringify(cBP)+'|teamGrupal:'+teamG+'|teamD16:'+teamD+'|total:'+total+'|phase:'+getCurrentPhase());
+})();
 renderRankingAnimated();
 updateLastImportedBadge();
 startCountdown();
