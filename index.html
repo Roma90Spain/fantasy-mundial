@@ -3322,58 +3322,65 @@ function buildRoster(f){
   const phaseLabels = {grupal:'Fase de Grupos', d16:'Dieciseisavos', r16:'Octavos', qf:'Cuartos', sf:'Semis', f:'Final'};
   const posLabels = {'1.Portero':'Portero','2.Defensa':'Defensa','3.Mediocentro':'Mediocentro','4.Delantero':'Delantero'};
 
+  // Equipo de grupos (base)
   const teamGrupal = (DATA.teamSnapshots&&DATA.teamSnapshots[f.name]&&DATA.teamSnapshots[f.name]['grupal'])
     ? DATA.teamSnapshots[f.name]['grupal'].map(p=>({...p}))
     : f.team.map(p=>({...p}));
+
+  // Cambios de todas las fases hasta la actual, para saber quién sustituye a quién
+  const PHASES_KO = ['d16','r16','qf','sf','f'];
+  const currentIdx = PHASES_KO.indexOf(currentPhase);
+  // Map: nombre_que_sale -> {entra, fase}
+  const sustitucionMap = {}; // sale -> {entra, fase}
+  PHASES_KO.slice(0, currentIdx+1).forEach(ph => {
+    const cambiosFase = (((DATA.cambiosByPhase||{})[f.name]||{})[ph]||[]).filter(c=>c.sale&&c.entra);
+    cambiosFase.forEach(c => { sustitucionMap[c.sale] = {entra: c.entra, fase: ph}; });
+  });
+
+  // Puntos de grupos para cada jugador
+  const ptsGrupal = (DATA.phasePoints&&DATA.phasePoints['grupal']) || {};
+  // Puntos de la fase actual
+  const ptsFaseActual = (DATA.phasePoints&&DATA.phasePoints[currentPhase]) || {};
+
+  // Posición del jugador que entró (heredada del que salió)
   const teamActual = getTeamForPhase(f, currentPhase);
-  const nombresActuales = new Set(teamActual.map(p=>p.name));
-  const nombresGrupal   = new Set(teamGrupal.map(p=>p.name));
+
+  const byPos = {'1.Portero':[],'2.Defensa':[],'3.Mediocentro':[],'4.Delantero':[]};
+  teamGrupal.forEach(p=>{ if(byPos[p.pos]) byPos[p.pos].push(p); });
 
   let html = '';
 
-  if(currentPhase !== 'grupal'){
-    html += `<div style="font-size:0.6rem;color:rgba(180,210,255,0.4);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:6px;margin-top:2px">\u{1F4CB} ${phaseLabels['grupal']}</div>`;
-  }
-
-  const byPosGrupal = {'1.Portero':[],'2.Defensa':[],'3.Mediocentro':[],'4.Delantero':[]};
-  teamGrupal.forEach(p=>{ if(byPosGrupal[p.pos]) byPosGrupal[p.pos].push(p); });
-
-  html += Object.entries(byPosGrupal).map(([pos,players])=>{
+  html += Object.entries(byPos).map(([pos, players])=>{
     if(!players.length) return '';
     const rows = players.map(p=>{
-      const ptsG = (DATA.phasePoints&&DATA.phasePoints['grupal']&&DATA.phasePoints['grupal'][p.name]) || 0;
-      const cap = p.captain ? `<span class="captain-badge">C</span>` : '';
-      const eff = ptsG * (p.captain ? 2 : 1);
+      const pG = (ptsGrupal[p.name]||0);
+      const effG = pG * (p.captain ? 2 : 1);
       const _db = PLAYERS_DB[p.name]; const _flag = _db?(FLAGS[_db[1]]||''):'';
-      const salio = currentPhase !== 'grupal' && !nombresActuales.has(p.name);
-      if(salio){
-        return `<div class="player-row" style="opacity:0.35"><span class="player-name" style="text-decoration:line-through;color:rgba(180,200,220,0.5)">${_flag} ${p.name}${cap} <span style="font-size:0.58rem;color:rgba(248,113,113,0.7)">\u2197 salio</span></span><span class="player-score zero" style="font-size:0.72rem">${eff} pts</span></div>`;
+      const cap = p.captain ? `<span class="captain-badge">C</span>` : '';
+      const sust = sustitucionMap[p.name];
+
+      if(sust && currentPhase !== 'grupal'){
+        // Este jugador salió — mostrarlo tachado + debajo el que entró
+        const pE = sust.entra;
+        const ptsFaseE = ptsFaseActual[pE]||0;
+        // Capitán puede haber cambiado en fase actual
+        const teamActualPlayer = teamActual.find(x=>x.name===pE);
+        const esCapNuevo = teamActualPlayer&&teamActualPlayer.captain;
+        const effE = ptsFaseE * (esCapNuevo ? 2 : 1);
+        const _dbE = PLAYERS_DB[pE]; const _flagE = _dbE?(FLAGS[_dbE[1]]||''):'';
+        const capE = esCapNuevo ? `<span class="captain-badge">C</span>` : '';
+        const faseLabel = phaseLabels[sust.fase]||sust.fase;
+        return `<div class="player-row" style="opacity:0.35"><span class="player-name" style="text-decoration:line-through;color:rgba(180,200,220,0.5)">${_flag} ${p.name}${cap}</span><span class="player-score zero" style="font-size:0.72rem">${effG} pts</span></div>` +
+               `<div class="player-row" style="padding-left:12px;border-left:2px solid rgba(74,222,128,0.3);margin-left:4px"><span class="player-name" style="color:rgba(180,255,200,0.9)">${_flagE} ${pE}${capE} <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">${faseLabel}</span></span><span class="player-score ${effE===0?'zero':''}">${effE} pts</span></div>`;
       }
-      return `<div class="player-row"><span class="player-name">${_flag} ${p.name}${cap}</span><span class="player-score ${eff===0?'zero':''}">${eff} pts</span></div>`;
+
+      // Jugador que sigue en el equipo — mostrar pts de grupos
+      return `<div class="player-row"><span class="player-name">${_flag} ${p.name}${cap}</span><span class="player-score ${effG===0?'zero':''}">${effG} pts</span></div>`;
     }).join('');
     return `<div class="pos-group"><div class="pos-title">${posLabels[pos]}</div>${rows}</div>`;
   }).join('');
 
-  if(currentPhase !== 'grupal'){
-    const nuevos = teamActual.filter(p => !nombresGrupal.has(p.name));
-    if(nuevos.length){
-      html += `<div style="font-size:0.6rem;color:rgba(74,222,128,0.6);text-transform:uppercase;letter-spacing:1.2px;margin:10px 0 6px;border-top:1px solid rgba(74,222,128,0.15);padding-top:8px">\u2705 ${phaseLabels[currentPhase]}</div>`;
-      const byPosNuevos = {'1.Portero':[],'2.Defensa':[],'3.Mediocentro':[],'4.Delantero':[]};
-      nuevos.forEach(p=>{ if(byPosNuevos[p.pos]) byPosNuevos[p.pos].push(p); });
-      html += Object.entries(byPosNuevos).map(([pos,players])=>{
-        if(!players.length) return '';
-        const rows = players.map(p=>{
-          const ptsFase = (DATA.phasePoints&&DATA.phasePoints[currentPhase]&&DATA.phasePoints[currentPhase][p.name]) || 0;
-          const cap = p.captain ? `<span class="captain-badge">C</span>` : '';
-          const eff = ptsFase * (p.captain ? 2 : 1);
-          const _db = PLAYERS_DB[p.name]; const _flag = _db?(FLAGS[_db[1]]||''):'';
-          return `<div class="player-row"><span class="player-name" style="color:rgba(180,255,200,0.9)">${_flag} ${p.name}${cap} <span style="font-size:0.58rem;color:rgba(74,222,128,0.7)">\u2199 entro</span></span><span class="player-score ${eff===0?'zero':''}">${eff} pts</span></div>`;
-        }).join('');
-        return `<div class="pos-group"><div class="pos-title" style="color:rgba(74,222,128,0.5)">${posLabels[pos]}</div>${rows}</div>`;
-      }).join('');
-    }
-  }
-
+  // Botón cambios
   const hechosFase = currentPhase !== 'grupal'
     ? (((DATA.cambiosByPhase||{})[f.name]||{})[currentPhase]||[]).filter(c=>c.sale&&c.entra).length
     : 0;
