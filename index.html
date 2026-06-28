@@ -3479,13 +3479,12 @@ function renderModalCambios(f){
 function iniciarCambio(friendName, playerIdx){
   const f = DATA.friends.find(x=>x.name===friendName);
   if(!f) return;
-  const jugadorSale = f.team[playerIdx];
+  const currentPhase = getCurrentPhase();
+  const teamFase = getTeamForPhase(f, currentPhase);
+  const jugadorSale = teamFase[playerIdx];
+  if(!jugadorSale) return;
 
   let modal = document.getElementById('cambiosModal');
-
-  // Buscar jugadores del PLAYERS_DB con el mismo puesto
-  const posTarget = jugadorSale.pos;
-  const todosEnEquipo = new Set(f.team.map(p=>p.name));
 
   modal.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -3509,8 +3508,11 @@ function iniciarCambio(friendName, playerIdx){
 function filtrarJugadoresCambio(friendName, playerIdx, query){
   const f = DATA.friends.find(x=>x.name===friendName);
   if(!f) return;
-  const jugadorSale = f.team[playerIdx];
-  const enEquipo = new Set(f.team.map(p=>p.name));
+  const currentPhase = getCurrentPhase();
+  const teamFase = getTeamForPhase(f, currentPhase);
+  const jugadorSale = teamFase[playerIdx];
+  if(!jugadorSale) return;
+  const enEquipo = new Set(teamFase.map(p=>p.name));
   const q = query.toLowerCase().trim();
 
   // Filtrar PLAYERS_DB
@@ -3558,13 +3560,32 @@ function filtrarJugadoresCambio(friendName, playerIdx, query){
 }
 
 function getCurrentPhase(){
-  // Determinar la fase actual basándonos en qué partidos se han importado
-  if(!DATA.phasePoints) return 'grupal';
-  if(DATA.phasePoints['f']   && Object.keys(DATA.phasePoints['f']).length)   return 'f';
-  if(DATA.phasePoints['sf']  && Object.keys(DATA.phasePoints['sf']).length)  return 'sf';
-  if(DATA.phasePoints['qf']  && Object.keys(DATA.phasePoints['qf']).length)  return 'qf';
-  if(DATA.phasePoints['r16'] && Object.keys(DATA.phasePoints['r16']).length) return 'r16';
-  if(DATA.phasePoints['d16'] && Object.keys(DATA.phasePoints['d16']).length) return 'd16';
+  // Prioridad: phasePoints (partidos importados con puntos)
+  if(DATA.phasePoints){
+    if(DATA.phasePoints['f']   && Object.keys(DATA.phasePoints['f']).length)   return 'f';
+    if(DATA.phasePoints['sf']  && Object.keys(DATA.phasePoints['sf']).length)  return 'sf';
+    if(DATA.phasePoints['qf']  && Object.keys(DATA.phasePoints['qf']).length)  return 'qf';
+    if(DATA.phasePoints['r16'] && Object.keys(DATA.phasePoints['r16']).length) return 'r16';
+    if(DATA.phasePoints['d16'] && Object.keys(DATA.phasePoints['d16']).length) return 'd16';
+  }
+  // Fallback: si hay ganadores en el bracket, estamos en eliminatorias
+  const ko = DATA.knockout || {};
+  const hasD16Winner = Object.keys(ko).some(k => k.startsWith('d16') && ko[k].winner);
+  const hasR16Match  = Object.keys(ko).some(k => k.startsWith('r16') && (ko[k].a || ko[k].b));
+  const hasQFMatch   = Object.keys(ko).some(k => k.startsWith('qf')  && (ko[k].a || ko[k].b));
+  const hasSFMatch   = Object.keys(ko).some(k => k.startsWith('sf')  && (ko[k].a || ko[k].b));
+  const hasFMatch    = Object.keys(ko).some(k => k.startsWith('f_')  && (ko[k].a || ko[k].b));
+  if(hasFMatch)   return 'f';
+  if(hasSFMatch)  return 'sf';
+  if(hasQFMatch)  return 'qf';
+  if(hasR16Match) return 'r16';
+  // Si los 72 partidos de grupos están todos importados, ya es d16
+  const grupalCount = Object.keys(DATA.historialPartidos||{}).filter(id => /^[A-L]\d+$/.test(id)).length;
+  if(grupalCount >= 72 || hasD16Winner) return 'd16';
+  // Comprobar si hay algún resultado de dieciseisavos en DATA.resultados o koExtra
+  const koExtra = DATA.koExtra || {};
+  const hasD16Extra = Object.keys(koExtra).some(k => k.startsWith('d16'));
+  if(hasD16Extra) return 'd16';
   return 'grupal';
 }
 
