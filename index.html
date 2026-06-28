@@ -3318,56 +3318,78 @@ function getLastMatchTag(playerName){
 }
 
 function buildRoster(f){
-  const byPos={'1.Portero':[],'2.Defensa':[],'3.Mediocentro':[],'4.Delantero':[]};
-  f.team.forEach(p=>{ if(byPos[p.pos]) byPos[p.pos].push(p); });
-  const labels={'1.Portero':'Portero','2.Defensa':'Defensa','3.Mediocentro':'Mediocentro','4.Delantero':'Delantero'};
-  const cambiosHechos = (DATA.cambios||{})[f.name]?.length || 0;
-  const cambiosStr = cambiosHechos > 0 ? ` <span style="font-size:0.6rem;color:var(--accent);background:rgba(240,192,64,0.12);padding:1px 5px;border-radius:4px;border:1px solid rgba(240,192,64,0.2)">${cambiosHechos}/3 cambios</span>` : '';
+  const currentPhase = getCurrentPhase();
+  const phaseLabels = {grupal:'Fase de Grupos', d16:'Dieciseisavos', r16:'Octavos', qf:'Cuartos', sf:'Semis', f:'Final'};
+  const posLabels = {'1.Portero':'Portero','2.Defensa':'Defensa','3.Mediocentro':'Mediocentro','4.Delantero':'Delantero'};
 
-  let html = Object.entries(byPos).map(([pos,players])=>{
+  const teamGrupal = (DATA.teamSnapshots&&DATA.teamSnapshots[f.name]&&DATA.teamSnapshots[f.name]['grupal'])
+    ? DATA.teamSnapshots[f.name]['grupal'].map(p=>({...p}))
+    : f.team.map(p=>({...p}));
+  const teamActual = getTeamForPhase(f, currentPhase);
+  const nombresActuales = new Set(teamActual.map(p=>p.name));
+  const nombresGrupal   = new Set(teamGrupal.map(p=>p.name));
+
+  let html = '';
+
+  if(currentPhase !== 'grupal'){
+    html += `<div style="font-size:0.6rem;color:rgba(180,210,255,0.4);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:6px;margin-top:2px">\u{1F4CB} ${phaseLabels['grupal']}</div>`;
+  }
+
+  const byPosGrupal = {'1.Portero':[],'2.Defensa':[],'3.Mediocentro':[],'4.Delantero':[]};
+  teamGrupal.forEach(p=>{ if(byPosGrupal[p.pos]) byPosGrupal[p.pos].push(p); });
+
+  html += Object.entries(byPosGrupal).map(([pos,players])=>{
     if(!players.length) return '';
-    const rows=players.map(p=>{
-      const pts=getScore(p.name);
-      const cap=p.captain?`<span class="captain-badge">C</span>`:'';
-      const eff=pts*(p.captain?2:1);
-      const _db=PLAYERS_DB[p.name];const _flag=_db?(FLAGS[_db[1]]||''):'';
-      const lastTag = getLastMatchTag(p.name);
-      // Marcar si fue cambiado
-      const wasSub = (DATA.cambios||{})[f.name]?.some(c=>c.entra===p.name||c.sale===p.name);
-      const subMark = wasSub ? ' 🔄' : '';
-      return `<div class="player-row"><span class="player-name">${_flag} ${p.name}${cap}${lastTag}${subMark}</span><span class="player-score ${pts===0?'zero':''}">${eff} pts</span></div>`;
+    const rows = players.map(p=>{
+      const ptsG = (DATA.phasePoints&&DATA.phasePoints['grupal']&&DATA.phasePoints['grupal'][p.name]) || 0;
+      const cap = p.captain ? `<span class="captain-badge">C</span>` : '';
+      const eff = ptsG * (p.captain ? 2 : 1);
+      const _db = PLAYERS_DB[p.name]; const _flag = _db?(FLAGS[_db[1]]||''):'';
+      const salio = currentPhase !== 'grupal' && !nombresActuales.has(p.name);
+      if(salio){
+        return `<div class="player-row" style="opacity:0.35"><span class="player-name" style="text-decoration:line-through;color:rgba(180,200,220,0.5)">${_flag} ${p.name}${cap} <span style="font-size:0.58rem;color:rgba(248,113,113,0.7)">\u2197 salio</span></span><span class="player-score zero" style="font-size:0.72rem">${eff} pts</span></div>`;
+      }
+      return `<div class="player-row"><span class="player-name">${_flag} ${p.name}${cap}</span><span class="player-score ${eff===0?'zero':''}">${eff} pts</span></div>`;
     }).join('');
-    return `<div class="pos-group"><div class="pos-title">${labels[pos]}</div>${rows}</div>`;
+    return `<div class="pos-group"><div class="pos-title">${posLabels[pos]}</div>${rows}</div>`;
   }).join('');
 
-  // Botón cambios al final de la plantilla, debajo del último jugador
-  const nCambios = (DATA.cambios||{})[f.name]?.length || 0;
-  const nRestantes = 3 - nCambios;
-  const cambiosLabel = nCambios > 0
-    ? `✏️ Cambios (${nCambios}/3 usados)`
-    : `✏️ Cambios de jugadores`;
-  const cambiosColor = nRestantes === 0 ? 'rgba(248,113,113,0.7)' : '#7ab8ff';
-  const cambiosBorder = nRestantes === 0 ? 'rgba(248,113,113,0.35)' : 'rgba(80,130,220,0.35)';
+  if(currentPhase !== 'grupal'){
+    const nuevos = teamActual.filter(p => !nombresGrupal.has(p.name));
+    if(nuevos.length){
+      html += `<div style="font-size:0.6rem;color:rgba(74,222,128,0.6);text-transform:uppercase;letter-spacing:1.2px;margin:10px 0 6px;border-top:1px solid rgba(74,222,128,0.15);padding-top:8px">\u2705 ${phaseLabels[currentPhase]}</div>`;
+      const byPosNuevos = {'1.Portero':[],'2.Defensa':[],'3.Mediocentro':[],'4.Delantero':[]};
+      nuevos.forEach(p=>{ if(byPosNuevos[p.pos]) byPosNuevos[p.pos].push(p); });
+      html += Object.entries(byPosNuevos).map(([pos,players])=>{
+        if(!players.length) return '';
+        const rows = players.map(p=>{
+          const ptsFase = (DATA.phasePoints&&DATA.phasePoints[currentPhase]&&DATA.phasePoints[currentPhase][p.name]) || 0;
+          const cap = p.captain ? `<span class="captain-badge">C</span>` : '';
+          const eff = ptsFase * (p.captain ? 2 : 1);
+          const _db = PLAYERS_DB[p.name]; const _flag = _db?(FLAGS[_db[1]]||''):'';
+          return `<div class="player-row"><span class="player-name" style="color:rgba(180,255,200,0.9)">${_flag} ${p.name}${cap} <span style="font-size:0.58rem;color:rgba(74,222,128,0.7)">\u2199 entro</span></span><span class="player-score ${eff===0?'zero':''}">${eff} pts</span></div>`;
+        }).join('');
+        return `<div class="pos-group"><div class="pos-title" style="color:rgba(74,222,128,0.5)">${posLabels[pos]}</div>${rows}</div>`;
+      }).join('');
+    }
+  }
+
+  const hechosFase = currentPhase !== 'grupal'
+    ? (((DATA.cambiosByPhase||{})[f.name]||{})[currentPhase]||[]).filter(c=>c.sale&&c.entra).length
+    : 0;
+  const restantes = 3 - hechosFase;
+  const cambiosLabel = currentPhase === 'grupal'
+    ? `\u270F\uFE0F Cambios (disponibles en eliminatorias)`
+    : hechosFase > 0 ? `\u270F\uFE0F Cambios (${hechosFase}/3 usados)` : `\u270F\uFE0F Cambios de jugadores`;
+  const cambiosColor  = currentPhase === 'grupal' ? 'rgba(120,150,180,0.5)' : restantes === 0 ? 'rgba(248,113,113,0.7)' : '#7ab8ff';
+  const cambiosBorder = restantes === 0 ? 'rgba(248,113,113,0.35)' : 'rgba(80,130,220,0.35)';
 
   html += `<div style="margin-top:14px;padding-top:10px;border-top:1px solid rgba(30,60,100,0.4)">
-    <button onclick="abrirCambios('${f.name}')"
-      style="width:100%;background:rgba(15,35,80,0.5);border:1px solid ${cambiosBorder};color:${cambiosColor};border-radius:10px;padding:9px;font-size:0.8rem;font-weight:600;cursor:pointer;text-align:center">
-      ${cambiosLabel}
-    </button>
+    <button onclick="abrirCambios('${f.name}')" style="width:100%;background:rgba(15,35,80,0.5);border:1px solid ${cambiosBorder};color:${cambiosColor};border-radius:10px;padding:9px;font-size:0.8rem;font-weight:600;cursor:pointer;text-align:center">${cambiosLabel}</button>
   </div>`;
 
   return html;
 }
-
-
-/* ═══════════════════════════════════════
-   SISTEMA DE CAMBIOS DE JUGADORES
-   Máx 3 cambios por equipo. Solo admin.
-   Solo disponible tras la fase de grupos.
-   ═══════════════════════════════════════ */
-
-let cambiosFriendActivo = null; // nombre del amigo en edición
-let cambiosEnCurso = [];         // cambios pendientes de confirmar [{sale, entra, pos, capAnterior}]
 
 function abrirCambios(friendName){
   if(!adminOk()) return;
