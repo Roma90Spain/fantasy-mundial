@@ -4630,6 +4630,46 @@ async function koImportUrl(round, idx){
   koParseAndSaveKoMatch(round, idx, url, text, status);
 }
 
+function parseComuniazoText(html){
+  // Extrae jugadores, puntos, resultado y goleadores del HTML de Comuniazo
+  try {
+    const result = { jugadores: [], resultado: '', goles: [] };
+    
+    // Buscar patrón de jugadores con puntos: "NombreJugador: X puntos"
+    const playerRegex = /([A-Za-záéíóúñÁÉÍÓÚÑ\s\.'\-]+?):\s*(\d+)\s*puntos/gi;
+    let match;
+    while ((match = playerRegex.exec(html)) !== null) {
+      const nombre = match[1].trim();
+      const pts = parseInt(match[2], 10);
+      if (nombre && !isNaN(pts)) {
+        result.jugadores.push({ nombre, pts });
+      }
+    }
+    
+    // Buscar resultado: "X-Y" en contextos típicos
+    const scoreRegex = /(\d+)\s*-\s*(\d+)/;
+    const scoreMatch = html.match(scoreRegex);
+    if (scoreMatch) {
+      result.resultado = `${scoreMatch[1]}-${scoreMatch[2]}`;
+    }
+    
+    // Buscar goleadores (patrón: "nombre [número]" o "nombre (número goles)")
+    const goalsRegex = /([A-Za-záéíóúñÁÉÍÓÚÑ\s\.'\-]+?)\s*\((\d+)\s*goles?\)|([A-Za-záéíóúñÁÉÍÓÚÑ\s\.'\-]+?)\s+\[(\d+)\s*goles?\]/gi;
+    while ((match = goalsRegex.exec(html)) !== null) {
+      const name = (match[1] || match[3]).trim();
+      const num = parseInt(match[2] || match[4], 10);
+      if (name && !isNaN(num) && num > 0) {
+        result.goles.push({ name, num });
+      }
+    }
+    
+    return result.jugadores.length > 0 ? result : null;
+  } catch (e) {
+    console.error('Error parsing Comuniazo text:', e);
+    return null;
+  }
+}
+
 function koOpenImportManual(round, idx, url){
   const modal = document.getElementById('koModal');
   if(!modal) return;
