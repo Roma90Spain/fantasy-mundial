@@ -4607,62 +4607,80 @@ function koOpenImport(round, idx){ koShowImport(round, idx); }
 
 async function koImportUrl(round, idx){
   const urlInput = document.getElementById('koUrlInput');
-  const status = document.getElementById('koImportStatus');
   const url = (urlInput?.value||'').trim();
-  if(!url){ if(status) status.innerHTML='<span style="color:orange">⚠️ Introduce una URL</span>'; return; }
+  if(!url){ 
+    const status = document.getElementById('koImportStatus');
+    if(status) status.innerHTML='<span style="color:orange">⚠️ Introduce una URL</span>'; 
+    return; 
+  }
   if(!adminOk()) return;
 
-  if(status) status.innerHTML = '<span style="color:#7ab8ff">⏳ Cargando...</span>';
-
-  let text = '';
-  try {
-    const resp = await fetch('https://api.allorigins.win/get?url='+encodeURIComponent(url));
-    if(!resp.ok) throw new Error('fetch failed');
-    const data = await resp.json();
-    text = data.contents || '';
-  } catch(e){
-    if(status) status.innerHTML='<span style="color:rgba(255,180,50,0.9)">⚠️ No se pudo cargar automáticamente.</span>';
-    koOpenImportManual(round, idx, url);
-    return;
-  }
-
-  if(!text){ if(status) status.innerHTML='<span style="color:orange">⚠️ Contenido vacío</span>'; return; }
-  koParseAndSaveKoMatch(round, idx, url, text, status);
+  // Mostrar directamente el diálogo de pegar texto
+  // (las URLs de Comuniazo no son directamente accesibles desde navegador)
+  koOpenImportManual(round, idx, url);
 }
 
-function parseComuniazoText(html){
-  // Extrae jugadores, puntos, resultado y goleadores del HTML de Comuniazo
+function parseComuniazoText(htmlOrText){
+  // Extrae jugadores, puntos, resultado y goleadores del HTML/texto de Comuniazo
   try {
     const result = { jugadores: [], resultado: '', goles: [] };
+    const text = htmlOrText.replace(/<[^>]*>/g, ' '); // Eliminar HTML tags
     
-    // Buscar patrón de jugadores con puntos: "NombreJugador: X puntos"
-    const playerRegex = /([A-Za-záéíóúñÁÉÍÓÚÑ\s\.'\-]+?):\s*(\d+)\s*puntos/gi;
-    let match;
-    while ((match = playerRegex.exec(html)) !== null) {
-      const nombre = match[1].trim();
-      const pts = parseInt(match[2], 10);
-      if (nombre && !isNaN(pts)) {
-        result.jugadores.push({ nombre, pts });
+    // **Intento 1: Buscar líneas con patrón "Nombre: Puntos"**
+    // Esto es lo más común en Comuniazo: "Cristiano Ronaldo: 25 puntos"
+    const lines = text.split('\n');
+    let foundAny = false;
+    
+    for (const line of lines) {
+      // Patrón: "NombreCompleto: NúmerodePuntos"
+      const playerMatch = line.match(/^(.+?):\s*([0-9]+)\s*(puntos?)?$/i);
+      if (playerMatch) {
+        const nombre = playerMatch[1].trim();
+        const pts = parseInt(playerMatch[2], 10);
+        // Validar que es un nombre real (al menos 2 palabras o contiene caracteres especiales)
+        if (nombre.length > 2 && !isNaN(pts) && pts >= 0) {
+          result.jugadores.push({ nombre, pts });
+          foundAny = true;
+        }
       }
     }
     
-    // Buscar resultado: "X-Y" en contextos típicos
-    const scoreRegex = /(\d+)\s*-\s*(\d+)/;
-    const scoreMatch = html.match(scoreRegex);
+    // **Intento 2: Si no se encontraron, buscar con regex más flexible**
+    if (!foundAny) {
+      const playerRegex = /([A-Za-záéíóúñÁÉÍÓÚÑ\s\.\-']+?)\s*[:–]\s*(\d+)\s*(?:puntos?)?/gi;
+      let match;
+      while ((match = playerRegex.exec(text)) !== null) {
+        const nombre = match[1].trim();
+        const pts = parseInt(match[2], 10);
+        if (nombre.length > 2 && !isNaN(pts)) {
+          // Evitar duplicados
+          if (!result.jugadores.find(j => j.nombre === nombre)) {
+            result.jugadores.push({ nombre, pts });
+          }
+        }
+      }
+    }
+    
+    // **Buscar resultado: "X-Y" o "X – Y"**
+    const scoreRegex = /\b(\d+)\s*[-–]\s*(\d+)\b/;
+    const scoreMatch = text.match(scoreRegex);
     if (scoreMatch) {
       result.resultado = `${scoreMatch[1]}-${scoreMatch[2]}`;
     }
     
-    // Buscar goleadores (patrón: "nombre [número]" o "nombre (número goles)")
-    const goalsRegex = /([A-Za-záéíóúñÁÉÍÓÚÑ\s\.'\-]+?)\s*\((\d+)\s*goles?\)|([A-Za-záéíóúñÁÉÍÓÚÑ\s\.'\-]+?)\s+\[(\d+)\s*goles?\]/gi;
-    while ((match = goalsRegex.exec(html)) !== null) {
-      const name = (match[1] || match[3]).trim();
-      const num = parseInt(match[2] || match[4], 10);
-      if (name && !isNaN(num) && num > 0) {
+    // **Buscar goleadores: "nombre (número)" o "nombre - número goles"**
+    const goalsRegex = /([A-Za-záéíóúñÁÉÍÓÚÑ\s\.\-']+?)\s*[(\-–]\s*(\d+)\s*(?:goles?)?[)–]?/gi;
+    const seenGoals = new Set();
+    while ((match = goalsRegex.exec(text)) !== null) {
+      const name = match[1].trim();
+      const num = parseInt(match[2], 10);
+      if (name.length > 2 && !isNaN(num) && num > 0 && !seenGoals.has(name)) {
         result.goles.push({ name, num });
+        seenGoals.add(name);
       }
     }
     
+    // **Retornar solo si encontramos al menos algunos jugadores**
     return result.jugadores.length > 0 ? result : null;
   } catch (e) {
     console.error('Error parsing Comuniazo text:', e);
@@ -4705,7 +4723,10 @@ function koParseAndSaveKoMatch(round, idx, url, text, statusEl){
   try {
     const result = parseComuniazoText(text);
     if(!result || !result.jugadores || result.jugadores.length === 0){
-      if(statusEl) statusEl.innerHTML='<span style="color:orange">⚠️ No se encontraron jugadores. ¿Es texto de Comuniazo?</span>';
+      if(statusEl) {
+        statusEl.innerHTML='<span style="color:orange">⚠️ Formato no reconocido. Asegúrate de pegar el texto completo con "Nombre: Puntos" en cada línea.</span>';
+        statusEl.style.marginTop = '8px';
+      }
       return;
     }
 
