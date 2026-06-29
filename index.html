@@ -4607,17 +4607,187 @@ function koOpenImport(round, idx){ koShowImport(round, idx); }
 
 async function koImportUrl(round, idx){
   const urlInput = document.getElementById('koUrlInput');
-  const url = (urlInput?.value||'').trim();
-  if(!url){ 
-    const status = document.getElementById('koImportStatus');
-    if(status) status.innerHTML='<span style="color:orange">⚠️ Introduce una URL</span>'; 
-    return; 
+  const statusEl = document.getElementById('koImportStatus');
+  const url = (urlInput ? urlInput.value.trim() : '');
+  
+  if(!url || !url.includes('comuniazo.com')){
+    statusEl.innerHTML='⚠️ Pega una URL válida de mundial.comuniazo.com';
+    statusEl.style.color='#ff7a7a';
+    return;
   }
-  if(!adminOk()) return;
+  
+  statusEl.innerHTML='⏳ Cargando...';
+  statusEl.style.color='var(--muted)';
+  const btn=document.getElementById('koImportBtn');
+  if(btn) btn.disabled=true;
 
-  // Mostrar directamente el diálogo de pegar texto
-  // (las URLs de Comuniazo no son directamente accesibles desde navegador)
-  koOpenImportManual(round, idx, url);
+  // Intentar con múltiples proxies
+  const proxies=[
+    `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+  ];
+
+  let html=null;
+  for(const proxy of proxies){
+    try{
+      const resp=await fetch(proxy,{signal:AbortSignal.timeout(12000)});
+      if(resp.ok){ html=await resp.text(); break; }
+    } catch(e){ /* try next */ }
+  }
+  
+  if(btn) btn.disabled=false;
+
+  if(!html){
+    statusEl.innerHTML='❌ No se pudo cargar. Comprueba la URL o copia el texto manualmente.';
+    statusEl.style.color='#ff7a7a';
+    return;
+  }
+
+  try{
+    const parser=new DOMParser();
+    const doc=parser.parseFromString(html,'text/html');
+
+    // Obtener todos los textos
+    function getLeafTexts(el){
+      const out=[];
+      function walk(node){
+        if(node.nodeType===3){
+          const t=(node.textContent||'').trim();
+          if(t) out.push(t);
+        } else if(node.nodeType===1){
+          for(const c of node.childNodes) walk(c);
+        }
+      }
+      walk(el);
+      return out;
+    }
+    const leafTexts = doc.body ? getLeafTexts(doc.body) : [];
+    const allText = leafTexts.join('\n');
+
+    // --- Jugadores y puntos ---
+    const playerLinks=doc.querySelectorAll('a[href*="/comunio-apuestas/jugadores/"]');
+    const playerLines=[];
+    for(const link of playerLinks){
+      const txt=(link.textContent||'').trim();
+      const m=txt.match(/^(.+?)\s+(-?\d+)\s+[\d,]+\s*$/);
+      if(m){
+        const nombre=m[1].trim();
+        const pts=parseInt(m[2]);
+        playerLines.push({nombre, pts});
+        continue;
+      }
+      const m2=txt.match(/^(.+?)\s+[\d,]+\s*\/\s*(\d+)\s+/);
+      if(m2){
+        const nombre=m2[1].trim();
+        const pts=parseInt(m2[2]);
+        if(pts>0) playerLines.push({nombre, pts});
+      }
+    }
+
+    if(playerLines.length===0){
+      statusEl.innerHTML='⚠️ No se encontraron puntos. ¿El partido ya ha terminado?';
+      statusEl.style.color='#ffb347';
+      return;
+    }
+
+    // --- Resultado ---
+    let resultado='';
+    const resMatch=allText.match(/Final\s+(\d+)\s*[-–]\s*(\d+)/);
+    if(resMatch) resultado=`${resMatch[1]}-${resMatch[2]}`;
+
+    // --- Goleadores ---
+    const goals=[];
+    const goalSummaryRe=/^(.+?)\s+(?:\(p\.p\.\)\s+)?(\d+['′'](?:\s*,\s*\d+['′'])*)\s*$/;
+    for(const text of leafTexts){
+      if(/^\d+['′+]/.test(text)) continue;
+      if(/^(final|descanso|tiempo|jornada|partido|eventos|puntos|comunio|sofascore|©)/i.test(text)) continue;
+      if(text.length>60) continue;
+      const m=text.match(goalSummaryRe);
+      if(!m) continue;
+      const nombre=m[1].replace(/\(p\.p\.\)/i,'').trim();
+      const isOwnGoal=/\(p\.p\.\)/i.test(text);
+      if(isOwnGoal) continue;
+      const mins=(m[2].match(/\d+/g)||[]).length;
+      if(nombre && mins>0) goals.push({name:nombre, num:mins});
+    }
+
+    // Guardar en DATA
+    koSaveKoData(round, idx, {jugadores: playerLines, resultado, goles: goals}, statusEl);
+
+  } catch(e){
+    console.error(e);
+    statusEl.innerHTML='❌ Error al procesar los datos.';
+    statusEl.style.color='#ff7a7a';
+  }
+}
+
+function koSaveKoData(round, idx, data, statusEl){
+  try {
+    if(!adminOk()) return;
+    
+    // Actualizar DATA.playerBase y phasePoints
+    const matchPhase = getPhaseOfMatch(round + '_' + idx);
+    if(!DATA.phasePoints) DATA.phasePoints = {};
+    if(!DATA.phasePoints[matchPhase]) DATA.phasePoints[matchPhase] = {};
+    if(!DATA.teamSnapshots) DATA.teamSnapshots = {};
+    
+    DATA.friends.forEach(fr=>{
+      if(!DATA.teamSnapshots[fr.name]) DATA.teamSnapshots[fr.name]={};
+      if(!DATA.teamSnapshots[fr.name][matchPhase]){
+        DATA.teamSnapshots[fr.name][matchPhase] = getTeamForPhase(fr, matchPhase).map(p=>({...p}));
+      }
+    });
+    
+    // Agregar puntos
+    data.jugadores.forEach(j=>{
+      DATA.playerBase[j.nombre]=(DATA.playerBase[j.nombre]||0)+j.pts;
+      DATA.phasePoints[matchPhase][j.nombre]=(DATA.phasePoints[matchPhase][j.nombre]||0)+j.pts;
+    });
+
+    // Guardar info del partido
+    const m = koGetMatch(round, idx);
+    const extra = {
+      url: document.getElementById('koUrlInput')?.value || '',
+      resultado: data.resultado||'',
+      goles: data.goles||[],
+      jugadores: data.jugadores,
+      imported: true
+    };
+    koSetExtra(round, idx, extra);
+
+    // Detectar ganador automáticamente
+    if(data.resultado && m.a && m.b && !m.winner){
+      const parts = data.resultado.split('-');
+      if(parts.length===2){
+        const goA=parseInt(parts[0]||'0'), goB=parseInt(parts[1]||'0');
+        if(goA !== goB){
+          const winSlot = goA>goB ? 'a' : 'b';
+          const newM = {...m, winner: winSlot==='a'?m.a:m.b};
+          koSetMatch(round, idx, newM);
+          
+          // Propagar ganador a siguiente ronda
+          clearDownstreamIfNeeded(round, idx);
+        }
+      }
+    }
+
+    saveData();
+    renderKnockout();
+    
+    if(statusEl) {
+      statusEl.innerHTML=`✅ ${data.jugadores.length} jugadores importados. Resultado: ${data.resultado || '—'}`;
+      statusEl.style.color='#4ade80';
+    }
+    
+    setTimeout(() => koCloseModal(), 2000);
+
+  } catch(e){
+    console.error('Error saving ko data:', e);
+    if(statusEl) {
+      statusEl.innerHTML='❌ Error al guardar los datos.';
+      statusEl.style.color='#ff7a7a';
+    }
+  }
 }
 
 function parseComuniazoText(htmlOrText){
