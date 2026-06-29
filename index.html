@@ -489,8 +489,7 @@ ul.ranking{list-style:none}
   <div class="panel" id="topPanel" style="display:none"></div>
   <div class="panel" id="knockoutPanel" style="display: block;">
     <div style="font-weight:700;font-size:1rem;margin-bottom:10px">🏆 Fase eliminatoria</div>
-    <div id="knockoutRounds"><div style="text-align:center;margin-bottom:14px">
-  </div><div class="ko-bracket-scroll"><div class="ko-bracket-row"><div class="ko-col" id="ko-col-d16"><div class="ko-col-header">Dieciseisavos de final</div><div class="ko-match-card" onclick="koShowEdit('d16',0)">
+    <div id="knockoutRounds"><div class="ko-bracket-scroll"><div class="ko-bracket-row"><div class="ko-col" id="ko-col-d16"><div class="ko-col-header">Dieciseisavos de final</div><div class="ko-match-card" onclick="koShowEdit('d16',0)">
             <div class="ko-match-header">
               <span class="ko-match-label">Dieciseisavos 1</span>
               <div style="display:flex;align-items:center;gap:5px">
@@ -5017,7 +5016,11 @@ function koCardClick(round, idx){
 
 // Alias nombres nuevos → funciones existentes
 function koShowDetail(round, idx){ koOpenMatchDetail(round, idx); }
-function koShowEdit(round, idx){ koToggleEdit(round, idx); }
+function koShowEdit(round, idx){
+  const extra = koGetExtra(round, idx);
+  if(extra.imported){ koOpenMatchDetail(round, idx); return; }
+  koToggleEdit(round, idx);
+}
 
 /* Click rápido en equipo = seleccionar ganador */
 function koPickWinnerMarca(round, idx, slot){
@@ -5053,6 +5056,7 @@ function koToggleEdit(round, idx){
       <div style="font-size:0.8rem;color:#7ab8ff;font-weight:700">✏️ ${rLabel} — Partido ${idx+1}</div>
       <button onclick="koCloseModal()" style="background:none;border:none;color:var(--muted);font-size:1rem;cursor:pointer">✕</button>
     </div>
+    ${!extra.imported ? `
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
       ${selA}
       <span style="color:var(--muted);font-size:0.8rem">vs</span>
@@ -5062,7 +5066,8 @@ function koToggleEdit(round, idx){
       <button class="ko-team-btn ${m.winner&&m.winner===m.a?'winner':''}" style="font-size:0.75rem;padding:6px 14px" onclick="koPickWinner('${round}',${idx},'a')" ${!m.a||!m.b?'disabled':''}>🏆 ${m.a||'—'}</button>
       <button class="ko-team-btn ${m.winner&&m.winner===m.b?'winner':''}" style="font-size:0.75rem;padding:6px 14px" onclick="koPickWinner('${round}',${idx},'b')" ${!m.a||!m.b?'disabled':''}>🏆 ${m.b||'—'}</button>
     </div>
-    <button onclick="koOpenImport('${round}',${idx})" style="width:100%;background:linear-gradient(135deg,rgba(20,80,40,0.6),rgba(10,50,25,0.6));border:1px solid rgba(76,175,125,0.35);color:#4ade80;border-radius:8px;padding:9px;font-size:0.78rem;font-weight:700;cursor:pointer;margin-top:2px">📥 Importar puntos de este partido</button>
+    ` : ''}
+    <button onclick="koOpenImport('${round}',${idx})" style="width:100%;background:linear-gradient(135deg,rgba(20,80,40,0.6),rgba(10,50,25,0.6));border:1px solid rgba(76,175,125,0.35);color:#4ade80;border-radius:8px;padding:9px;font-size:0.78rem;font-weight:700;cursor:pointer;margin-top:2px">📥 ${extra.imported?'🔄 Reimportar puntos':'Importar puntos de este partido'}</button>
   `;
 }
 
