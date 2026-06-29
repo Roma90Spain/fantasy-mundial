@@ -917,7 +917,7 @@ ul.ranking{list-style:none}
       <button onclick="koImportUrl('d16',0)" style="flex:1;background:linear-gradient(135deg,#1a5a30,#0e3a1e);border:1px solid rgba(76,175,125,0.45);color:#4ade80;border-radius:10px;padding:12px;font-size:0.88rem;font-weight:700;cursor:pointer;min-width:140px">⬇️ Importar puntos</button>
       
     </div>
-    <div id="koImportStatus" style="font-size:0.75rem;margin-top:12px;text-align:center;min-height:22px;color:rgba(180,210,255,0.65)"></div>
+    <div id="koImportStatus" style="font-size: 0.75rem; margin-top: 12px; text-align: center; min-height: 22px; color: rgb(255, 122, 122);">❌ Error al guardar los datos.</div>
   </div></div>
   <div class="panel" id="searchPanel" style="display: none;">
     <div style="margin-bottom:8px;font-weight:700;font-size:0.9rem">🔍 Buscar jugador</div>
@@ -3084,7 +3084,6 @@ const CALENDARIO = [
 ];
 
 const ADMIN_PASS = "mundial2026";
-let _adminSessionVerified = false; // true durante la sesión actual si ya se verificó
 
 // ===== HELPERS =====
 function getScore(n){ return DATA.playerBase[n] ?? 0; }
@@ -3200,12 +3199,7 @@ function togglePanel(id){
   closeAllPanels();
   if(!wasOpen) el.style.display='block';
 }
-function adminOk(){
-  if(_adminSessionVerified) return true;
-  const p = prompt('Contraseña admin:');
-  if(p === ADMIN_PASS){ _adminSessionVerified = true; return true; }
-  return false;
-}
+function adminOk(){ return prompt('Contraseña admin:')===ADMIN_PASS; }
 function rankClass(i){ return i===0?'gold':i===1?'silver':i===2?'bronze':''; }
 function rankLabel(i){ return i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1); }
 
@@ -4609,10 +4603,9 @@ function koShowImport(round, idx){
     <input type="text" id="koUrlInput" inputmode="url" placeholder="https://fantasy.comuniazo.com/..." value="${(extra.url||'').replace(/"/g,'&quot;')}"
       autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"
       style="width:100%;background:rgba(8,20,44,0.98);border:2px solid rgba(60,120,220,0.55);border-radius:10px;color:#e8f0ff;font-size:0.88rem;padding:12px 14px;box-sizing:border-box;outline:none;-webkit-appearance:none;display:block;margin-bottom:14px">
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button id="koImportBtn" onclick="koImportUrl('${round}',${idx})" style="flex:2;background:linear-gradient(135deg,#1a5a30,#0e3a1e);border:1px solid rgba(76,175,125,0.45);color:#4ade80;border-radius:10px;padding:12px;font-size:0.88rem;font-weight:700;cursor:pointer;min-width:140px">⬇️ Importar puntos</button>
-      <button onclick="koOpenImportManual('${round}',${idx},document.getElementById('koUrlInput')?.value||'')" style="flex:1;background:rgba(40,40,100,0.4);border:1px solid rgba(100,100,200,0.35);color:#aab4ff;border-radius:10px;padding:12px;font-size:0.82rem;cursor:pointer;min-width:90px">📋 Texto</button>
-      ${extra.imported ? '<button onclick="koShowDetail(\''+round+'\','+idx+')" style="background:rgba(30,60,120,0.4);border:1px solid rgba(100,160,255,0.3);color:#7ab8ff;border-radius:10px;padding:10px;font-size:0.82rem;cursor:pointer">📊 Ver</button>' : ''}
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button onclick="koImportUrl('${round}',${idx})" style="flex:1;background:linear-gradient(135deg,#1a5a30,#0e3a1e);border:1px solid rgba(76,175,125,0.45);color:#4ade80;border-radius:10px;padding:12px;font-size:0.88rem;font-weight:700;cursor:pointer;min-width:140px">⬇️ Importar puntos</button>
+      ${extra.imported ? '<button onclick="koShowDetail(\''+round+'\','+idx+')" style="background:rgba(30,60,120,0.4);border:1px solid rgba(100,160,255,0.3);color:#7ab8ff;border-radius:10px;padding:12px;font-size:0.85rem;cursor:pointer">📊 Ver puntos</button>' : ''}
     </div>
     <div id="koImportStatus" style="font-size:0.75rem;margin-top:12px;text-align:center;min-height:22px;color:rgba(180,210,255,0.65)"></div>
   `;
@@ -4630,13 +4623,6 @@ async function koImportUrl(round, idx){
   
   if(!url || !url.includes('comuniazo.com')){
     statusEl.innerHTML='⚠️ Pega una URL válida de mundial.comuniazo.com';
-    statusEl.style.color='#ff7a7a';
-    return;
-  }
-  
-  // Verificar admin ANTES del fetch (prompt no funciona bien en async en Android)
-  if(!adminOk()){
-    statusEl.innerHTML='❌ Se requiere contraseña admin.';
     statusEl.style.color='#ff7a7a';
     return;
   }
@@ -4690,8 +4676,7 @@ async function koImportUrl(round, idx){
     const allText = leafTexts.join('\n');
 
     // --- Jugadores y puntos ---
-    // Intento 1: selector DOM de links de jugadores (funciona cuando el proxy devuelve HTML completo)
-    const playerLinks=doc.querySelectorAll('a[href*="/comunio-apuestas/jugadores/"], a[href*="/jugadores/"]');
+    const playerLinks=doc.querySelectorAll('a[href*="/comunio-apuestas/jugadores/"]');
     const playerLines=[];
     for(const link of playerLinks){
       const txt=(link.textContent||'').trim();
@@ -4699,39 +4684,19 @@ async function koImportUrl(round, idx){
       if(m){
         const nombre=m[1].trim();
         const pts=parseInt(m[2]);
-        if(nombre.length>2) playerLines.push({nombre, pts});
+        playerLines.push({nombre, pts});
         continue;
       }
       const m2=txt.match(/^(.+?)\s+[\d,]+\s*\/\s*(\d+)\s+/);
       if(m2){
         const nombre=m2[1].trim();
         const pts=parseInt(m2[2]);
-        if(pts>0 && nombre.length>2) playerLines.push({nombre, pts});
-      }
-    }
-
-    // Intento 2 (fallback texto): patron "Nombre  12  1.234.567"
-    if(playerLines.length===0){
-      const seen=new Set();
-      for(const txt of leafTexts){
-        const m=txt.match(/^([A-Za-z\u00C0-\u017E][A-Za-z\u00C0-\u017E\s\'\-\.]{2,30})\s+(-?\d{1,3})\s+[\d\.,']{3,}\s*$/);
-        if(m){
-          const nombre=m[1].trim();
-          const pts=parseInt(m[2]);
-          if(!seen.has(nombre)){ seen.add(nombre); playerLines.push({nombre, pts}); }
-          continue;
-        }
-        const m3=txt.match(/^(.+?):\s*(-?\d+)\s*(?:pts?|puntos?)?$/i);
-        if(m3){
-          const nombre=m3[1].trim();
-          const pts=parseInt(m3[2]);
-          if(nombre.length>2 && !seen.has(nombre)){ seen.add(nombre); playerLines.push({nombre, pts}); }
-        }
+        if(pts>0) playerLines.push({nombre, pts});
       }
     }
 
     if(playerLines.length===0){
-      statusEl.innerHTML='⚠️ No se encontraron puntos. Comprueba que el partido haya terminado, o usa &quot;Pegar texto&quot; si la URL no funciona.';
+      statusEl.innerHTML='⚠️ No se encontraron puntos. ¿El partido ya ha terminado?';
       statusEl.style.color='#ffb347';
       return;
     }
@@ -4769,7 +4734,11 @@ async function koImportUrl(round, idx){
 
 function koSaveKoData(round, idx, data, statusEl){
   try {
-    // Admin ya verificado antes del fetch en koImportUrl / koImportText
+    if(!adminOk()){
+      if(statusEl) statusEl.innerHTML='❌ Se requiere contraseña admin.';
+      return;
+    }
+    
     // Actualizar DATA.playerBase y phasePoints
     const matchPhase = getPhaseOfMatch(round + '_' + idx);
     if(!DATA.phasePoints) DATA.phasePoints = {};
@@ -4816,7 +4785,7 @@ function koSaveKoData(round, idx, data, statusEl){
       }
     }
 
-    saveData();
+    saveToLS();
     renderKnockout();
     
     if(statusEl) {
@@ -4836,73 +4805,112 @@ function koSaveKoData(round, idx, data, statusEl){
 }
 
 function parseComuniazoText(htmlOrText){
-  // Extrae jugadores, puntos, resultado y goleadores del HTML/texto de Comuniazo
+  // Parser robusto para texto copiado de mundial.comuniazo.com
   try {
     const result = { jugadores: [], resultado: '', goles: [] };
-    const text = htmlOrText.replace(/<[^>]*>/g, ' '); // Eliminar HTML tags
-    
-    // **Intento 1: Buscar líneas con patrón "Nombre: Puntos"**
-    // Esto es lo más común en Comuniazo: "Cristiano Ronaldo: 25 puntos"
-    const lines = text.split('\n');
-    let foundAny = false;
-    
-    for (const line of lines) {
-      // Patrón: "NombreCompleto: NúmerodePuntos"
-      const playerMatch = line.match(/^(.+?):\s*([0-9]+)\s*(puntos?)?$/i);
-      if (playerMatch) {
-        const nombre = playerMatch[1].trim();
-        const pts = parseInt(playerMatch[2], 10);
-        // Validar que es un nombre real (al menos 2 palabras o contiene caracteres especiales)
-        if (nombre.length > 2 && !isNaN(pts) && pts >= 0) {
-          result.jugadores.push({ nombre, pts });
-          foundAny = true;
+    const text = htmlOrText.replace(/<[^>]*>/g,' ').replace(/&nbsp;/g,' ');
+    const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(l=>l.length>0);
+
+    // ── RESULTADO ──────────────────────────────────────────────────────
+    // Comuniazo: "Final 2 - 1" / "Resultado: 2-1" / línea sola "2 - 1"
+    for(const line of lines){
+      const rm = line.match(/(?:final|resultado)[:\s]+(\d+)\s*[-\u2013]\s*(\d+)/i)
+               || line.match(/^(\d+)\s*[-\u2013]\s*(\d+)$/);
+      if(rm){ result.resultado=`${rm[1]}-${rm[2]}`; break; }
+    }
+
+    // ── JUGADORES Y PUNTOS ─────────────────────────────────────────────
+    // Formato 1 (todo en una línea): "Nombre  12  1.234.567"
+    // Formato 2 (3 líneas): nombre / puntos / precio
+    // Formato 3: "Nombre: 12" o "Nombre: 12 pts"
+    const seen = new Set();
+    const priceRe = /^[\d.,]{4,}$/;  // "1.234.567"
+    const ptsOnlyRe = /^-?\d{1,3}$/; // "-3" ... "150"
+
+    // Intento 1: "Nombre  -12  1.234.567" (precio con puntos de miles)
+    for(const line of lines){
+      const m = line.match(/^(.+?)\s{2,}(-?\d{1,3})\s{2,}[\d.,']{4,}\s*$/);
+      if(m){
+        const nombre=m[1].trim(), pts=parseInt(m[2]);
+        if(nombre.length>2 && !isNaN(pts) && !seen.has(nombre)){
+          seen.add(nombre); result.jugadores.push({nombre,pts});
+        }
+        continue;
+      }
+      // "Nombre: 12" o "Nombre: 12 pts"
+      const m2 = line.match(/^(.+?)\s*:\s*(-?\d+)\s*(?:pts?|puntos?)?\s*$/i);
+      if(m2){
+        const nombre=m2[1].trim(), pts=parseInt(m2[2]);
+        if(nombre.length>2 && !isNaN(pts) && !seen.has(nombre)){
+          seen.add(nombre); result.jugadores.push({nombre,pts});
         }
       }
     }
-    
-    // **Intento 2: Si no se encontraron, buscar con regex más flexible**
-    if (!foundAny) {
-      const playerRegex = /([A-Za-záéíóúñÁÉÍÓÚÑ\s\.\-']+?)\s*[:–]\s*(\d+)\s*(?:puntos?)?/gi;
-      let match;
-      while ((match = playerRegex.exec(text)) !== null) {
-        const nombre = match[1].trim();
-        const pts = parseInt(match[2], 10);
-        if (nombre.length > 2 && !isNaN(pts)) {
-          // Evitar duplicados
-          if (!result.jugadores.find(j => j.nombre === nombre)) {
-            result.jugadores.push({ nombre, pts });
+
+    // Intento 2: bloques nombre / puntos / precio en 3 líneas
+    if(result.jugadores.length===0){
+      for(let i=0;i<lines.length-2;i++){
+        if(ptsOnlyRe.test(lines[i+1]) && priceRe.test(lines[i+2])){
+          const nombre=lines[i], pts=parseInt(lines[i+1]);
+          if(nombre.length>2 && !seen.has(nombre)){
+            seen.add(nombre); result.jugadores.push({nombre,pts});
+          }
+          i+=2;
+        }
+      }
+    }
+
+    // Intento 3: "Nombre  12" sin precio
+    if(result.jugadores.length===0){
+      for(const line of lines){
+        const m = line.match(/^([A-Za-z\u00C0-\u017E][\w\s'.\-]{1,30}?)\s{2,}(-?\d{1,3})\s*$/);
+        if(m){
+          const nombre=m[1].trim(), pts=parseInt(m[2]);
+          if(nombre.length>2 && !isNaN(pts) && !seen.has(nombre)){
+            seen.add(nombre); result.jugadores.push({nombre,pts});
           }
         }
       }
     }
-    
-    // **Buscar resultado: "X-Y" o "X – Y"**
-    const scoreRegex = /\b(\d+)\s*[-–]\s*(\d+)\b/;
-    const scoreMatch = text.match(scoreRegex);
-    if (scoreMatch) {
-      result.resultado = `${scoreMatch[1]}-${scoreMatch[2]}`;
-    }
-    
-    // **Buscar goleadores: "nombre (número)" o "nombre - número goles"**
-    const goalsRegex = /([A-Za-záéíóúñÁÉÍÓÚÑ\s\.\-']+?)\s*[(\-–]\s*(\d+)\s*(?:goles?)?[)–]?/gi;
-    const seenGoals = new Set();
-    while ((match = goalsRegex.exec(text)) !== null) {
-      const name = match[1].trim();
-      const num = parseInt(match[2], 10);
-      if (name.length > 2 && !isNaN(num) && num > 0 && !seenGoals.has(name)) {
-        result.goles.push({ name, num });
-        seenGoals.add(name);
+
+    // ── GOLEADORES ─────────────────────────────────────────────────────
+    // Comuniazo: "Eustaquio 45'" / "Eustaquio (45')" / "Eustaquio 12', 67'"
+    // Minuto de gol: número seguido de ' o prime o ′
+    const minRe = /\d+['\u2019\u2032]/g;
+    const goalMap = {};
+    for(let i=0;i<lines.length;i++){
+      const line = lines[i];
+      const mins = line.match(minRe);
+      if(!mins) continue;
+      // El nombre está en la misma línea antes de los minutos
+      const namePart = line.replace(minRe,'').replace(/[(),'.\u2019\u2032\d]/g,' ').trim();
+      if(namePart.length>2){
+        goalMap[namePart]=(goalMap[namePart]||0)+mins.length;
+      } else if(i>0){
+        // nombre en línea anterior (formato: nombre \n 45')
+        const prev = lines[i-1].replace(/[(),'.\u2019\u2032\d]/g,' ').trim();
+        if(prev.length>2 && !/^\d+$/.test(prev)){
+          goalMap[prev]=(goalMap[prev]||0)+mins.length;
+        }
       }
     }
-    
-    // **Retornar solo si encontramos al menos algunos jugadores**
-    return result.jugadores.length > 0 ? result : null;
-  } catch (e) {
-    console.error('Error parsing Comuniazo text:', e);
+    for(const [name,num] of Object.entries(goalMap)){
+      if(num>0) result.goles.push({name,num});
+    }
+    // Fallback: "nombre - 1 gol"
+    if(result.goles.length===0){
+      for(const line of lines){
+        const m=line.match(/^(.+?)\s*[-\u2013]\s*(\d+)\s*goles?\s*$/i);
+        if(m){const name=m[1].trim(),num=parseInt(m[2]);if(name.length>2&&num>0)result.goles.push({name,num});}
+      }
+    }
+
+    return result.jugadores.length>0 ? result : null;
+  } catch(e){
+    console.error('parseComuniazoText error:',e);
     return null;
   }
 }
-
 function koOpenImportManual(round, idx, url){
   const modal = document.getElementById('koModal');
   if(!modal) return;
@@ -4913,11 +4921,23 @@ function koOpenImportManual(round, idx, url){
       <div style="font-size:0.8rem;color:#7ab8ff;font-weight:700">📋 Pegar texto — ${rLabel} P${idx+1}</div>
       <button onclick="koCloseModal()" style="background:none;border:none;color:var(--muted);font-size:1rem;cursor:pointer">✕</button>
     </div>
-    <div style="font-size:0.7rem;color:rgba(180,210,255,0.6);margin-bottom:8px">
-      Abre la URL en el navegador, selecciona todo el texto (Ctrl+A / mantén pulsado y selecciona todo) y pégalo aquí:
+    <div style="font-size:0.7rem;color:rgba(180,210,255,0.6);margin-bottom:6px">
+      Abre la URL en el navegador → Seleccionar todo el texto → Copiar → pega aquí:
     </div>
-    <textarea id="koTextInput" rows="7" placeholder="Pega aquí el texto completo del partido de Comuniazo..." style="width:100%;background:rgba(10,22,40,0.9);border:1px solid rgba(40,80,140,0.5);border-radius:8px;color:#dce8f4;font-size:0.73rem;padding:8px;resize:vertical;box-sizing:border-box"></textarea>
-    <div style="display:flex;gap:8px;margin-top:10px">
+    <textarea id="koTextInput" rows="5" placeholder="Pega aquí el texto completo del partido de Comuniazo..." style="width:100%;background:rgba(10,22,40,0.9);border:1px solid rgba(40,80,140,0.5);border-radius:8px;color:#dce8f4;font-size:0.73rem;padding:8px;resize:vertical;box-sizing:border-box"></textarea>
+    <div style="display:flex;gap:6px;margin-top:7px;align-items:center;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:4px">
+        <label style="font-size:0.7rem;color:rgba(150,180,220,0.8);white-space:nowrap">⚽ Resultado:</label>
+        <input id="koManualResult" type="text" placeholder="1-0" maxlength="7"
+          style="width:60px;background:rgba(8,20,44,0.9);border:1px solid rgba(60,120,220,0.4);border-radius:6px;color:#e8f0ff;font-size:0.85rem;padding:5px 7px;outline:none;-webkit-appearance:none;text-align:center">
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;flex:1">
+        <label style="font-size:0.7rem;color:rgba(150,180,220,0.8);white-space:nowrap">🎯 Goles:</label>
+        <input id="koManualGoals" type="text" placeholder="ej: Eustaquio 45', Kane 67',90'"
+          style="flex:1;min-width:0;background:rgba(8,20,44,0.9);border:1px solid rgba(60,120,220,0.4);border-radius:6px;color:#e8f0ff;font-size:0.72rem;padding:5px 7px;outline:none;-webkit-appearance:none">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px">
       <button onclick="koImportText('${round}',${idx},'${url.replace(/'/g,"\\'")}')" style="flex:1;background:linear-gradient(135deg,#1a5a30,#0e3a1e);border:1px solid rgba(76,175,125,0.4);color:#4ade80;border-radius:8px;padding:9px;font-size:0.8rem;font-weight:700;cursor:pointer">✅ Procesar texto</button>
       <button onclick="koOpenImport('${round}',${idx})" style="background:rgba(40,40,80,0.4);border:1px solid rgba(100,100,180,0.3);color:#aaa;border-radius:8px;padding:9px;font-size:0.8rem;cursor:pointer">← Volver</button>
     </div>
@@ -4930,24 +4950,34 @@ function koImportText(round, idx, url){
   const status = document.getElementById('koImportStatus');
   const text = textarea?.value?.trim();
   if(!text){ status.innerHTML='<span style="color:orange">⚠️ Texto vacío</span>'; return; }
-  // Verificar admin antes de procesar
-  if(!adminOk()){
-    status.innerHTML='❌ Se requiere contraseña admin.';
-    return;
-  }
-  koParseAndSaveKoMatch(round, idx, url, text, status);
+  if(!adminOk()){ status.innerHTML='❌ Se requiere contraseña admin.'; return; }
+  const manualResult = (document.getElementById('koManualResult')?.value||'').trim();
+  const manualGoals  = (document.getElementById('koManualGoals')?.value||'').trim();
+  koParseAndSaveKoMatch(round, idx, url, text, status, manualResult, manualGoals);
 }
 
-function koParseAndSaveKoMatch(round, idx, url, text, statusEl){
+function koParseAndSaveKoMatch(round, idx, url, text, statusEl, manualResult, manualGoals){
   // Reutilizar el mismo parser que para grupos
   try {
     const result = parseComuniazoText(text);
     if(!result || !result.jugadores || result.jugadores.length === 0){
-      if(statusEl) {
-        statusEl.innerHTML='<span style="color:orange">⚠️ Formato no reconocido. Asegúrate de pegar el texto completo con "Nombre: Puntos" en cada línea.</span>';
-        statusEl.style.marginTop = '8px';
-      }
+      if(statusEl) statusEl.innerHTML='<span style="color:orange">⚠️ Formato no reconocido. Asegúrate de pegar el texto completo.</span>';
       return;
+    }
+    // Aplicar campos manuales si el parser no los detectó
+    if(manualResult && /^\d+[-–]\d+$/.test(manualResult)) result.resultado = manualResult.replace('–','-');
+    if(manualGoals && result.goles.length===0){
+      // Parsear "Eustaquio 45', Kane 67',90'" → [{name,num}]
+      const gparts = manualGoals.split(',');
+      const gmap = {};
+      for(const part of gparts){
+        const t = part.trim();
+        // "Nombre 45'" → extraer nombre antes del número
+        const m = t.match(/^(.+?)\s+\d+['′]?/);
+        const name = m ? m[1].trim() : t.replace(/\d+['′]?/g,'').trim();
+        if(name.length>1) gmap[name]=(gmap[name]||0)+1;
+      }
+      for(const [name,num] of Object.entries(gmap)) result.goles.push({name,num});
     }
 
     // Actualizar DATA.playerBase y DATA.phasePoints con los puntos del partido
@@ -5007,14 +5037,67 @@ function koOpenMatchDetail(round, idx){
   const extra = koGetExtra(round, idx);
   const rLabel = KO_STRUCTURE[round]?.label || round;
 
+  // Construir vista de dos columnas por equipo (igual que grupos)
   let jugHtml = '';
   if(extra.jugadores?.length){
-    const sorted = [...extra.jugadores].sort((a,b)=>b.pts-a.pts).slice(0,20);
-    jugHtml = sorted.map(j=>`
-      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(30,60,100,0.3)">
-        <span style="font-size:0.73rem;color:#dce8f4">${j.nombre}</span>
-        <span style="font-size:0.73rem;font-weight:700;color:${j.pts>0?'var(--accent2)':'var(--muted)'}">${j.pts>0?'+':''}${j.pts}</span>
-      </div>`).join('');
+    // Separar jugadores por equipo usando PLAYERS_DB
+    const teamA = m.a || '';
+    const teamB = m.b || '';
+    const byTeam = {a:[], b:[], unk:[]};
+    extra.jugadores.forEach(j=>{
+      const info = PLAYERS_DB[j.nombre];
+      if(info){
+        const nation = info[1];
+        if(nation===teamA) byTeam.a.push(j);
+        else if(nation===teamB) byTeam.b.push(j);
+        else byTeam.unk.push(j);
+      } else {
+        byTeam.unk.push(j);
+      }
+    });
+
+    // Función para renderizar una columna de equipo
+    const renderCol = (team, players, flag) => {
+      if(!players.length) return '';
+      const posOrder = ['PT','DF','MC','DL'];
+      const byPos = {'PT':[],'DF':[],'MC':[],'DL':[],'?':[]};
+      players.forEach(j=>{
+        const info = PLAYERS_DB[j.nombre];
+        const pos = info ? info[0] : '?';
+        (byPos[pos]||byPos['?']).push(j);
+      });
+      // Ordenar por puntos dentro de cada posición
+      Object.keys(byPos).forEach(p=>byPos[p].sort((a,b)=>b.pts-a.pts));
+      let html = `<div class="partido-col"><div class="partido-col-title">${flag} ${team}</div>`;
+      posOrder.forEach(pos=>{
+        if(byPos[pos]?.length){
+          html += `<div class="partido-pos-title">${pos}</div>`;
+          byPos[pos].forEach(j=>{
+            const isGoal = extra.goles?.some(g=>g.name===j.nombre||g.name===j.nombre.split(' ')[0]);
+            const ptsColor = j.pts>0?'var(--accent2)':j.pts<0?'var(--red)':'var(--muted)';
+            html += `<div class="partido-player"><span>${j.nombre}${isGoal?' ⚽':''}</span><span style="color:${ptsColor}">${j.pts}</span></div>`;
+          });
+        }
+      });
+      if(byPos['?']?.length){
+        html += `<div class="partido-pos-title">?</div>`;
+        byPos['?'].forEach(j=>{
+          const isGoal = extra.goles?.some(g=>g.name===j.nombre||g.name===j.nombre.split(' ')[0]);
+          const ptsColor = j.pts>0?'var(--accent2)':j.pts<0?'var(--red)':'var(--muted)';
+          html += `<div class="partido-player"><span>${j.nombre}${isGoal?' ⚽':''}</span><span style="color:${ptsColor}">${j.pts}</span></div>`;
+        });
+      }
+      html += '</div>';
+      return html;
+    };
+
+    const flagA = (FLAGS&&FLAGS[teamA])||'';
+    const flagB = (FLAGS&&FLAGS[teamB])||'';
+    const colA = renderCol(teamA, byTeam.a, flagA);
+    const colB = renderCol(teamB, byTeam.b, flagB);
+    const colUnk = byTeam.unk.length ? renderCol('?', byTeam.unk, '') : '';
+
+    jugHtml = `<div class="partido-cols">${colA}${colB}${colUnk}</div>`;
   }
 
   const golesHtml = extra.goles?.length
@@ -5038,8 +5121,8 @@ function koOpenMatchDetail(round, idx){
       <div style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">⚽ Goles</div>
       <div style="display:flex;flex-wrap:wrap;gap:2px">${golesHtml}</div>
     </div>
-    <div style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px">📊 Top jugadores del partido</div>
-    <div style="max-height:280px;overflow-y:auto">${jugHtml}</div>
+    <div style="font-size:0.62rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px">📊 Jugadores del partido</div>
+    <div style="max-height:320px;overflow-y:auto;overflow-x:auto">${jugHtml}</div>
     <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
       <button onclick="koOpenImport('${round}',${idx})" style="flex:1;background:rgba(20,50,100,0.4);border:1px solid rgba(80,130,220,0.4);color:#7ab8ff;border-radius:8px;padding:8px;font-size:0.75rem;cursor:pointer">🔄 Re-importar URL</button>
       <button onclick="koToggleEdit('${round}',${idx})" style="background:rgba(20,50,100,0.3);border:1px solid rgba(60,100,180,0.3);color:#aac4ff;border-radius:8px;padding:8px;font-size:0.75rem;cursor:pointer">✏️ Editar equipos</button>
