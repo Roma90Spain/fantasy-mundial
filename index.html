@@ -4723,7 +4723,10 @@ async function koImportUrl(round, idx){
 
 function koSaveKoData(round, idx, data, statusEl){
   try {
-    if(!adminOk()) return;
+    if(!adminOk()){
+      if(statusEl) statusEl.innerHTML='❌ Se requiere contraseña admin.';
+      return;
+    }
     
     // Actualizar DATA.playerBase y phasePoints
     const matchPhase = getPhaseOfMatch(round + '_' + idx);
