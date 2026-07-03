@@ -3355,6 +3355,12 @@ function getScore(n){ return DATA.playerBase[n] ?? 0; }
 const PHASES_ORDER = ['grupal','d16','r16','qf','sf','f'];
 
 // Qué IDs de partido pertenecen a cada fase
+// Escapa comillas simples y backslashes para poder insertar un string de forma segura
+// dentro de un atributo onclick="..." que usa comillas simples en su interior.
+function escJs(s){
+  return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+}
+
 function getPhaseOfMatch(matchId){
   if(!matchId) return 'grupal';
   if(matchId.startsWith('d16')) return 'd16';
@@ -3709,8 +3715,8 @@ function buildRoster(f){
         const _dbE = PLAYERS_DB[pE]; const _flagE = _dbE?(FLAGS[_dbE[1]]||''):'';
         const capE = esCapNuevo ? `<span class="captain-badge">C</span>` : '';
         const faseExtraE = ptsFaseE ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+${ptsFaseE})</span>` : (partidoFinalizadoE ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+0)</span>` : '');
-        return `<div class="player-row" style="opacity:0.35"><span class="player-name" style="text-decoration:line-through;color:rgba(180,200,220,0.5)">${_flag} ${p.name}${cap}</span><span class="player-score zero" style="font-size:0.72rem">${effG} pts</span></div>` +
-               `<div class="player-row" style="padding-left:12px;border-left:2px solid rgba(74,222,128,0.3);margin-left:4px"><span class="player-name" style="color:rgba(180,255,200,0.9)">${_flagE} ${pE}${capE}${estadoE}${faseExtraE}</span><span class="player-score ${effE===0?'zero':''}">${effE} pts</span></div>`;
+        return `<div class="player-row" style="opacity:0.35;cursor:pointer" onclick="openPlayerModal('${escJs(p.name)}','${escJs(f.name)}')"><span class="player-name" style="text-decoration:line-through;color:rgba(180,200,220,0.5)">${_flag} ${p.name}${cap}</span><span class="player-score zero" style="font-size:0.72rem">${effG} pts</span></div>` +
+               `<div class="player-row" style="padding-left:12px;border-left:2px solid rgba(74,222,128,0.3);margin-left:4px;cursor:pointer" onclick="openPlayerModal('${escJs(pE)}','${escJs(f.name)}')"><span class="player-name" style="color:rgba(180,255,200,0.9)">${_flagE} ${pE}${capE}${estadoE}${faseExtraE}</span><span class="player-score ${effE===0?'zero':''}">${effE} pts</span></div>`;
       }
 
       // Jugador que sigue en el equipo — mostrar pts de grupos + pts de la fase actual (si la hay)
@@ -3722,7 +3728,7 @@ function buildRoster(f){
       const partidoFinalizado = !haJugado && hasMatchFinishedInPhase(_db ? _db[1] : null, currentPhase);
       const faseExtra = pFaseActual ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+${pFaseActual})</span>` : (partidoFinalizado ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+0)</span>` : '');
       const estado = eliminado ? ' 🚫' : (currentPhase !== 'grupal' ? ` ${(haJugado || partidoFinalizado) ? '✅' : '⏳'}` : '');
-      return `<div class="player-row"><span class="player-name">${_flag} ${p.name}${cap}${estado}${faseExtra}</span><span class="player-score ${effTotal===0?'zero':''}">${effTotal} pts</span></div>`;
+      return `<div class="player-row" style="cursor:pointer" onclick="openPlayerModal('${escJs(p.name)}','${escJs(f.name)}')"><span class="player-name">${_flag} ${p.name}${cap}${estado}${faseExtra}</span><span class="player-score ${effTotal===0?'zero':''}">${effTotal} pts</span></div>`;
     }).join('');
     return `<div class="pos-group"><div class="pos-title">${posLabels[pos]}</div>${rows}</div>`;
   }).join('');
@@ -3743,6 +3749,121 @@ function buildRoster(f){
   </div>`;
 
   return html;
+}
+
+// Recopila el historial de puntos de un jugador (grupos + eliminatorias importadas)
+// e indica en cada partido si el amigo lo tenía fichado en ese momento.
+function getPlayerHistory(playerName, f){
+  const historial = [];
+
+  // Fase de grupos
+  const teamGrupal = (DATA.teamSnapshots && DATA.teamSnapshots[f.name] && DATA.teamSnapshots[f.name]['grupal'])
+    ? DATA.teamSnapshots[f.name]['grupal'].map(p=>p.name)
+    : f.team.map(p=>p.name);
+  CALENDARIO.forEach(c=>{
+    const h = DATA.historialPartidos[c.id];
+    if(!h) return;
+    const entry = (h.jugadores||[]).find(j=>j.nombre===playerName);
+    if(!entry) return;
+    historial.push({
+      label: `J${c.j}`,
+      detalle: `${c.local} ${RESULTADOS[c.id]||''} ${c.visit}`,
+      pts: entry.pts,
+      fichado: teamGrupal.includes(playerName)
+    });
+  });
+
+  // Fases eliminatorias
+  FASE_FINAL.forEach(ronda=>{
+    const teamFase = getTeamForPhase(f, ronda.ronda).map(p=>p.name);
+    ronda.partidos.forEach(partido=>{
+      const e = DATA.koExtra && DATA.koExtra[partido.id];
+      if(!e || !e.imported) return;
+      const entry = (e.jugadores||[]).find(j=>j.nombre===playerName);
+      if(!entry) return;
+      historial.push({
+        label: ronda.label,
+        detalle: e.resultado ? `${e.resultado}` : '',
+        pts: entry.pts,
+        fichado: teamFase.includes(playerName)
+      });
+    });
+  });
+
+  return historial;
+}
+
+// Abre el desplegable con la ficha y el historial de puntos de un jugador
+// dentro del contexto del equipo de un amigo concreto.
+function openPlayerModal(playerName, friendName){
+  const f = DATA.friends.find(x=>x.name===friendName);
+  if(!f) return;
+  const db = PLAYERS_DB[playerName];
+  const pos = db ? db[0] : '?';
+  const nat = db ? db[1] : '?';
+  const flag = FLAGS[nat] || '';
+  const posLabels = {'PT':'🧤 Portero','DF':'🛡️ Defensa','MC':'⚙️ Mediocentro','DL':'⚡ Delantero'};
+
+  const historial = getPlayerHistory(playerName, f);
+  const totalPts = historial.reduce((s,h)=>s + (h.fichado ? h.pts : 0), 0);
+
+  let filasHtml;
+  if(!historial.length){
+    filasHtml = `<div style="color:rgba(160,180,210,0.6);font-size:0.82rem;padding:14px 0;text-align:center">Sin partidos jugados todavía.</div>`;
+  } else {
+    filasHtml = historial.map(h=>{
+      if(h.fichado){
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 4px;border-bottom:1px solid rgba(40,70,110,0.35)">
+          <div>
+            <div style="font-size:0.82rem;color:#dce8ff;font-weight:600">${h.label}</div>
+            <div style="font-size:0.68rem;color:rgba(160,180,210,0.55)">${h.detalle}</div>
+          </div>
+          <div style="font-size:0.95rem;font-weight:700;color:${h.pts>0?'#4ade80':h.pts<0?'#f87171':'#9fb3cc'}">${h.pts} pts</div>
+        </div>`;
+      }
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 4px;border-bottom:1px solid rgba(40,70,110,0.35);opacity:0.75">
+        <div>
+          <div style="font-size:0.82rem;color:#dce8ff;font-weight:600">${h.label}</div>
+          <div style="font-size:0.68rem;color:rgba(160,180,210,0.55)">${h.detalle}</div>
+          <div style="font-size:0.66rem;color:#fbbf24;margin-top:2px">⚠️ No lo tenías fichado</div>
+        </div>
+        <div style="font-size:0.85rem;font-weight:600;color:rgba(160,180,210,0.6)">${h.pts} pts</div>
+      </div>`;
+    }).join('');
+  }
+
+  let modal = document.getElementById('playerModal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'playerModal';
+    modal.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(4,10,20,0.99);border-top:2px solid rgba(80,140,255,0.4);border-radius:16px 16px 0 0;padding:16px 14px 28px;box-shadow:0 -8px 40px rgba(0,0,0,0.9);max-height:88vh;overflow-y:auto;display:none';
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="font-size:2rem">${flag}</div>
+        <div>
+          <div style="font-size:1rem;color:#dce8ff;font-weight:700">${playerName}</div>
+          <div style="font-size:0.76rem;color:rgba(160,180,210,0.7)">${posLabels[pos]||pos} · ${nat}</div>
+        </div>
+      </div>
+      <button onclick="closePlayerModal()" style="background:rgba(30,60,120,0.5);border:1px solid rgba(80,120,200,0.4);color:#aac4ff;font-size:0.82rem;cursor:pointer;padding:5px 14px;border-radius:8px">✕ Cerrar</button>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(15,35,80,0.4);border-radius:10px;padding:10px 12px;margin-bottom:12px">
+      <span style="font-size:0.78rem;color:rgba(180,200,230,0.8)">Puntos sumados a ${f.name}</span>
+      <span style="font-size:1.05rem;font-weight:700;color:#4ade80">${totalPts} pts</span>
+    </div>
+    <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;color:rgba(140,165,200,0.6);margin-bottom:4px">Historial de puntos</div>
+    ${filasHtml}
+  `;
+  modal.style.display = 'block';
+}
+
+function closePlayerModal(){
+  const modal = document.getElementById('playerModal');
+  if(modal) modal.style.display = 'none';
 }
 
 function abrirCambios(friendName){
