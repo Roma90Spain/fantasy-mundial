@@ -3589,6 +3589,22 @@ function getLastMatchTag(playerName){
   return `<span style="font-size:0.65rem;color:${color};margin-left:3px">${pts>0?'+':''}${pts}</span>`;
 }
 
+// Comprueba si el partido eliminatorio de una selección en una fase concreta ya
+// finalizó (tiene winner en DATA.knockout), independientemente de si los puntos
+// de esa selección ya se han importado en koExtra. Esto evita que un jugador
+// aparezca como "⏳ pendiente" cuando su partido ya se ha disputado.
+function hasMatchFinishedInPhase(nat, phase){
+  if(!nat || !phase || phase === 'grupal') return false;
+  const knockout = DATA.knockout||{};
+  const keys = Object.keys(knockout).filter(k=>k.startsWith(phase+'_'));
+  for(const key of keys){
+    const m = knockout[key];
+    if(!m) continue;
+    if((m.a===nat || m.b===nat) && m.winner) return true;
+  }
+  return false;
+}
+
 // Comprueba si la selección de un jugador ha sido eliminada del torneo:
 // busca en DATA.knockout el partido eliminatorio más reciente en el que jugó esa
 // selección y devuelve true si perdió (hay winner y no es esa selección).
@@ -3682,7 +3698,9 @@ function buildRoster(f){
         const pE = sust.entra;
         const haJugadoE = ptsFaseMap[pE] !== undefined;
         const elimE = isPlayerEliminated(pE);
-        const estadoE = elimE ? ' 🚫' : ` ${haJugadoE ? '✅' : '⏳'}`;
+        const _dbEnat = PLAYERS_DB[pE]; const natE = _dbEnat ? _dbEnat[1] : null;
+        const partidoFinalizadoE = !haJugadoE && hasMatchFinishedInPhase(natE, currentPhase);
+        const estadoE = elimE ? ' 🚫' : ` ${(haJugadoE || partidoFinalizadoE) ? '✅' : '⏳'}`;
         const ptsFaseE = ptsFaseMap[pE]||0;
         // Capitán puede haber cambiado en fase actual
         const teamActualPlayer = teamActual.find(x=>x.name===pE);
@@ -3690,7 +3708,7 @@ function buildRoster(f){
         const effE = ptsFaseE * (esCapNuevo ? 2 : 1);
         const _dbE = PLAYERS_DB[pE]; const _flagE = _dbE?(FLAGS[_dbE[1]]||''):'';
         const capE = esCapNuevo ? `<span class="captain-badge">C</span>` : '';
-        const faseExtraE = ptsFaseE ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+${ptsFaseE})</span>` : '';
+        const faseExtraE = ptsFaseE ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+${ptsFaseE})</span>` : (partidoFinalizadoE ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+0)</span>` : '');
         return `<div class="player-row" style="opacity:0.35"><span class="player-name" style="text-decoration:line-through;color:rgba(180,200,220,0.5)">${_flag} ${p.name}${cap}</span><span class="player-score zero" style="font-size:0.72rem">${effG} pts</span></div>` +
                `<div class="player-row" style="padding-left:12px;border-left:2px solid rgba(74,222,128,0.3);margin-left:4px"><span class="player-name" style="color:rgba(180,255,200,0.9)">${_flagE} ${pE}${capE}${estadoE}${faseExtraE}</span><span class="player-score ${effE===0?'zero':''}">${effE} pts</span></div>`;
       }
@@ -3699,9 +3717,11 @@ function buildRoster(f){
       const pFaseActual = (currentPhase !== 'grupal') ? (ptsFaseMap[p.name]||0) : 0;
       const totalJugador = pG + pFaseActual;
       const effTotal = totalJugador * (esCapActual ? 2 : 1);
-      const faseExtra = pFaseActual ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+${pFaseActual})</span>` : '';
       const eliminado = isPlayerEliminated(p.name);
-      const estado = eliminado ? ' 🚫' : (currentPhase !== 'grupal' ? ` ${ptsFaseMap[p.name] !== undefined ? '✅' : '⏳'}` : '');
+      const haJugado = ptsFaseMap[p.name] !== undefined;
+      const partidoFinalizado = !haJugado && hasMatchFinishedInPhase(_db ? _db[1] : null, currentPhase);
+      const faseExtra = pFaseActual ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+${pFaseActual})</span>` : (partidoFinalizado ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+0)</span>` : '');
+      const estado = eliminado ? ' 🚫' : (currentPhase !== 'grupal' ? ` ${(haJugado || partidoFinalizado) ? '✅' : '⏳'}` : '');
       return `<div class="player-row"><span class="player-name">${_flag} ${p.name}${cap}${estado}${faseExtra}</span><span class="player-score ${effTotal===0?'zero':''}">${effTotal} pts</span></div>`;
     }).join('');
     return `<div class="pos-group"><div class="pos-title">${posLabels[pos]}</div>${rows}</div>`;
@@ -6838,7 +6858,13 @@ function getPlayedCount(f){
     if(getPhaseOfMatch(key) !== phase) return;
     (e.jugadores||[]).forEach(j=>{ ptsFaseMap[j.nombre] = true; });
   });
-  const jugados = team.filter(p => ptsFaseMap[p.name]).length;
+  const jugados = team.filter(p => {
+    if(ptsFaseMap[p.name]) return true;
+    if(isPlayerEliminated(p.name)) return true;
+    const db = PLAYERS_DB[p.name];
+    const nat = db ? db[1] : null;
+    return hasMatchFinishedInPhase(nat, phase);
+  }).length;
   return { jugados, total: team.length };
 }
 
