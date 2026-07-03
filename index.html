@@ -3204,7 +3204,7 @@ ul.ranking{list-style:none}
 </div>
 
 <script>
-const APP_VERSION = 1814670510;
+const APP_VERSION = 1814670512;
 if('serviceWorker' in navigator) {
   navigator.serviceWorker.ready.then(() => {
     setInterval(() => {
@@ -3359,6 +3359,48 @@ const PHASES_ORDER = ['grupal','d16','r16','qf','sf','f'];
 // dentro de un atributo onclick="..." que usa comillas simples en su interior.
 function escJs(s){
   return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+}
+
+// ===== FOTOS DE JUGADORES =====
+function playerImgSlug(name){
+  return String(name)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase()
+    .replace(/['’]/g,'')
+    .replace(/[^a-z0-9]+/g,'-')
+    .replace(/^-+|-+$/g,'');
+}
+// Nombres cuyo archivo real no sigue el slug con guiones estándar
+const PLAYER_IMG_ALIAS = {
+  'A. Gordon':'agordon','D. Muñoz':'dmunoz','E. Anderson':'eanderson',
+  'J. Rodríguez':'jrodriguez','N. Jackson':'njackson','Z.Suzuki':'zsuzuki'
+};
+function playerImgCandidates(name){
+  const s = PLAYER_IMG_ALIAS[name] || playerImgSlug(name);
+  return ['Fotos_Jugadores1/'+s+'.png','Fotos_Jugadores2/'+s+'.png'];
+}
+function avatarImgError(img){
+  const rest = img.dataset.rest;
+  if(rest){
+    const parts = rest.split('|');
+    const next = parts.shift();
+    img.dataset.rest = parts.join('|');
+    img.src = next;
+  } else {
+    img.parentElement.textContent = img.parentElement.dataset.fallback;
+    img.remove();
+  }
+}
+// Devuelve HTML de avatar: prueba las fotos en Fotos_Jugadores1/2 (.png) y si ninguna
+// existe cae de vuelta a la bandera, sin JS extra ni configuración por jugador.
+function playerAvatarHtml(name, sizePx){
+  sizePx = sizePx || 26;
+  const db = PLAYERS_DB[name];
+  const flag = db ? (FLAGS[db[1]]||'') : '';
+  const cands = playerImgCandidates(name);
+  const first = cands[0];
+  const rest = cands.slice(1).join('|');
+  return `<span class="player-avatar" style="display:inline-flex;align-items:center;justify-content:center;width:${sizePx}px;height:${sizePx}px;border-radius:50%;overflow:hidden;flex:none;background:rgba(255,255,255,0.06);font-size:${Math.round(sizePx*0.62)}px;vertical-align:middle" data-fallback="${escJs(flag)}"><img src="${first}" data-rest="${escJs(rest)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block" onerror="avatarImgError(this)"></span>`;
 }
 
 function getPhaseOfMatch(matchId){
@@ -3715,8 +3757,8 @@ function buildRoster(f){
         const _dbE = PLAYERS_DB[pE]; const _flagE = _dbE?(FLAGS[_dbE[1]]||''):'';
         const capE = esCapNuevo ? `<span class="captain-badge">C</span>` : '';
         const faseExtraE = ptsFaseE ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+${ptsFaseE})</span>` : (partidoFinalizadoE ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+0)</span>` : '');
-        return `<div class="player-row" style="opacity:0.35;cursor:pointer" onclick="openPlayerModal('${escJs(p.name)}','${escJs(f.name)}')"><span class="player-name" style="text-decoration:line-through;color:rgba(180,200,220,0.5)">${_flag} ${p.name}${cap}</span><span class="player-score zero" style="font-size:0.72rem">${effG} pts</span></div>` +
-               `<div class="player-row" style="padding-left:12px;border-left:2px solid rgba(74,222,128,0.3);margin-left:4px;cursor:pointer" onclick="openPlayerModal('${escJs(pE)}','${escJs(f.name)}')"><span class="player-name" style="color:rgba(180,255,200,0.9)">${_flagE} ${pE}${capE}${estadoE}${faseExtraE}</span><span class="player-score ${effE===0?'zero':''}">${effE} pts</span></div>`;
+        return `<div class="player-row" style="opacity:0.35;cursor:pointer;display:flex;align-items:center;gap:6px" onclick="openPlayerModal('${escJs(p.name)}','${escJs(f.name)}')">${playerAvatarHtml(p.name,22)}<span class="player-name" style="text-decoration:line-through;color:rgba(180,200,220,0.5);flex:1">${p.name}${cap}</span><span class="player-score zero" style="font-size:0.72rem">${effG} pts</span></div>` +
+               `<div class="player-row" style="padding-left:12px;border-left:2px solid rgba(74,222,128,0.3);margin-left:4px;cursor:pointer;display:flex;align-items:center;gap:6px" onclick="openPlayerModal('${escJs(pE)}','${escJs(f.name)}')">${playerAvatarHtml(pE,22)}<span class="player-name" style="color:rgba(180,255,200,0.9);flex:1">${pE}${capE}${estadoE}${faseExtraE}</span><span class="player-score ${effE===0?'zero':''}">${effE} pts</span></div>`;
       }
 
       // Jugador que sigue en el equipo — mostrar pts de grupos + pts de la fase actual (si la hay)
@@ -3728,7 +3770,7 @@ function buildRoster(f){
       const partidoFinalizado = !haJugado && hasMatchFinishedInPhase(_db ? _db[1] : null, currentPhase);
       const faseExtra = pFaseActual ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+${pFaseActual})</span>` : (partidoFinalizado ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+0)</span>` : '');
       const estado = eliminado ? ' 🚫' : (currentPhase !== 'grupal' ? ` ${(haJugado || partidoFinalizado) ? '✅' : '⏳'}` : '');
-      return `<div class="player-row" style="cursor:pointer" onclick="openPlayerModal('${escJs(p.name)}','${escJs(f.name)}')"><span class="player-name">${_flag} ${p.name}${cap}${estado}${faseExtra}</span><span class="player-score ${effTotal===0?'zero':''}">${effTotal} pts</span></div>`;
+      return `<div class="player-row" style="cursor:pointer;display:flex;align-items:center;gap:6px" onclick="openPlayerModal('${escJs(p.name)}','${escJs(f.name)}')">${playerAvatarHtml(p.name,22)}<span class="player-name" style="flex:1">${p.name}${cap}${estado}${faseExtra}</span><span class="player-score ${effTotal===0?'zero':''}">${effTotal} pts</span></div>`;
     }).join('');
     return `<div class="pos-group"><div class="pos-title">${posLabels[pos]}</div>${rows}</div>`;
   }).join('');
@@ -3841,15 +3883,11 @@ function openPlayerModal(playerName, friendName){
   }
 
   modal.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div style="font-size:2rem">${flag}</div>
-        <div>
-          <div style="font-size:1rem;color:#dce8ff;font-weight:700">${playerName}</div>
-          <div style="font-size:0.76rem;color:rgba(160,180,210,0.7)">${posLabels[pos]||pos} · ${nat}</div>
-        </div>
-      </div>
-      <button onclick="closePlayerModal()" style="background:rgba(30,60,120,0.5);border:1px solid rgba(80,120,200,0.4);color:#aac4ff;font-size:0.82rem;cursor:pointer;padding:5px 14px;border-radius:8px">✕ Cerrar</button>
+    <div style="position:relative;text-align:center;padding:6px 0 16px;margin:-16px -14px 14px;background:linear-gradient(180deg,rgba(30,60,120,0.35),rgba(4,10,20,0))">
+      <button onclick="closePlayerModal()" style="position:absolute;top:10px;right:10px;background:rgba(30,60,120,0.5);border:1px solid rgba(80,120,200,0.4);color:#aac4ff;font-size:0.78rem;cursor:pointer;padding:5px 12px;border-radius:8px">✕ Cerrar</button>
+      <div style="margin-top:18px">${playerAvatarHtml(playerName,84)}</div>
+      <div style="font-size:1.15rem;color:#f2f6ff;font-weight:800;margin-top:10px">${playerName}</div>
+      <div style="display:inline-flex;align-items:center;gap:6px;font-size:0.78rem;color:rgba(180,200,230,0.85);background:rgba(15,35,80,0.5);border-radius:20px;padding:4px 12px;margin-top:6px">${flag} ${posLabels[pos]||pos} · ${nat}</div>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(15,35,80,0.4);border-radius:10px;padding:10px 12px;margin-bottom:12px">
       <span style="font-size:0.78rem;color:rgba(180,200,230,0.8)">Puntos sumados a ${f.name}</span>
