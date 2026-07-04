@@ -3208,7 +3208,7 @@ ul.ranking{list-style:none}
 </div>
 
 <script>
-const APP_VERSION = 1814670516;
+const APP_VERSION = 1814670518;
 if('serviceWorker' in navigator) {
   navigator.serviceWorker.ready.then(() => {
     setInterval(() => {
@@ -3694,6 +3694,7 @@ function isPlayerEliminated(playerName){
 
 function buildRoster(f){
   const currentPhase = getCurrentPhase();
+  const displayPhase = getDisplayPhase();
   const phaseLabels = {grupal:'Fase de Grupos', d16:'Dieciseisavos', r16:'Octavos', qf:'Cuartos', sf:'Semis', f:'Final'};
   const posLabels = {'1.Portero':'Portero','2.Defensa':'Defensa','3.Mediocentro':'Mediocentro','4.Delantero':'Delantero'};
 
@@ -3722,10 +3723,11 @@ function buildRoster(f){
     });
   });
 
-  // Calcular puntos de fase actual por jugador desde koExtra
+  // Calcular puntos de fase actual por jugador desde koExtra (según la fase VISUAL,
+  // que se retrasa hasta el kickoff real aunque los cambios ya estén habilitados)
   const ptsFaseMap = {};
   Object.entries(DATA.koExtra||{}).forEach(([key,e])=>{
-    if(getPhaseOfMatch(key) !== currentPhase) return;
+    if(getPhaseOfMatch(key) !== displayPhase) return;
     (e.jugadores||[]).forEach(j=>{
       ptsFaseMap[j.nombre] = (ptsFaseMap[j.nombre]||0) + j.pts;
     });
@@ -3758,7 +3760,7 @@ function buildRoster(f){
         const haJugadoE = ptsFaseMap[pE] !== undefined;
         const elimE = isPlayerEliminated(pE);
         const _dbEnat = PLAYERS_DB[pE]; const natE = _dbEnat ? _dbEnat[1] : null;
-        const partidoFinalizadoE = !haJugadoE && hasMatchFinishedInPhase(natE, currentPhase);
+        const partidoFinalizadoE = !haJugadoE && hasMatchFinishedInPhase(natE, displayPhase);
         const estadoE = elimE ? ' 🚫' : ` ${(haJugadoE || partidoFinalizadoE) ? '✅' : '⏳'}`;
         const ptsFaseE = ptsFaseMap[pE]||0;
         // Capitán puede haber cambiado en fase actual
@@ -3773,14 +3775,14 @@ function buildRoster(f){
       }
 
       // Jugador que sigue en el equipo — mostrar pts de grupos + pts de la fase actual (si la hay)
-      const pFaseActual = (currentPhase !== 'grupal') ? (ptsFaseMap[p.name]||0) : 0;
+      const pFaseActual = (displayPhase !== 'grupal') ? (ptsFaseMap[p.name]||0) : 0;
       const totalJugador = pG + pFaseActual;
       const effTotal = totalJugador * (esCapActual ? 2 : 1);
       const eliminado = isPlayerEliminated(p.name);
       const haJugado = ptsFaseMap[p.name] !== undefined;
-      const partidoFinalizado = !haJugado && hasMatchFinishedInPhase(_db ? _db[1] : null, currentPhase);
+      const partidoFinalizado = !haJugado && hasMatchFinishedInPhase(_db ? _db[1] : null, displayPhase);
       const faseExtra = pFaseActual ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+${pFaseActual})</span>` : (partidoFinalizado ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+0)</span>` : '');
-      const estado = eliminado ? ' 🚫' : (currentPhase !== 'grupal' ? ` ${(haJugado || partidoFinalizado) ? '✅' : '⏳'}` : '');
+      const estado = eliminado ? ' 🚫' : (displayPhase !== 'grupal' ? ` ${(haJugado || partidoFinalizado) ? '✅' : '⏳'}` : '');
       return `<div class="player-row" style="cursor:pointer;display:flex;align-items:center;gap:6px" onclick="openPlayerModal('${escJs(p.name)}','${escJs(f.name)}')">${playerFlagHtml(p.name,22)}<span class="player-name" style="flex:1">${p.name}${cap}${estado}${faseExtra}</span><span class="player-score ${effTotal===0?'zero':''}">${effTotal} pts</span></div>`;
     }).join('');
     return `<div class="pos-group"><div class="pos-title">${posLabels[pos]}</div>${rows}</div>`;
@@ -4155,6 +4157,44 @@ function getCurrentPhase(){
   // Usamos la señal que indique la fase más avanzada de las dos
   const idx = Math.max(PHASE_ORDER.indexOf(porPuntos), PHASE_ORDER.indexOf(porBracket));
   return PHASE_ORDER[idx];
+}
+
+// Hora de inicio (timestamp) del primer partido de una ronda, según el calendario real (FASE_FINAL).
+// Las fechas están en formato "DD Mes" (p.ej. "04 Jul") + hora "HH:MM", en horario de España.
+function getFirstKickoffOfRound(roundKey){
+  const MESES_ES = {Ene:'01',Feb:'02',Mar:'03',Abr:'04',May:'05',Jun:'06',Jul:'07',Ago:'08',Sep:'09',Oct:'10',Nov:'11',Dic:'12'};
+  const ronda = (FASE_FINAL||[]).find(r=>r.ronda===roundKey);
+  if(!ronda || !ronda.partidos || !ronda.partidos.length) return null;
+  let earliest = null;
+  ronda.partidos.forEach(p=>{
+    if(!p.fecha || !p.hora) return;
+    const partes = p.fecha.trim().split(/\s+/);
+    if(partes.length < 2) return;
+    const dia = partes[0].padStart(2,'0');
+    const mes = MESES_ES[partes[1]] || '07';
+    const t = new Date(`2026-${mes}-${dia}T${p.hora}:00+02:00`).getTime();
+    if(!isNaN(t) && (earliest===null || t < earliest)) earliest = t;
+  });
+  return earliest;
+}
+
+// Fase "visual": igual que getCurrentPhase (permite ya hacer cambios de la nueva ronda
+// en cuanto la anterior está decidida), pero para MOSTRAR resultados/✅/🚫 se queda en la
+// ronda anterior hasta que arranque de verdad el primer partido de la nueva ronda.
+// Así, aunque los cambios ya estén disponibles, los ticks no "adelantan" antes de tiempo.
+function getDisplayPhase(){
+  const editable = getCurrentPhase();
+  const PHASE_ORDER = ['grupal','d16','r16','qf','sf','f'];
+  const idx = PHASE_ORDER.indexOf(editable);
+  if(idx <= 1) return editable; // 'grupal' o 'd16': no hay ronda anterior que retrasar
+
+  // Si ya hay puntos importados de la fase editable, es que ya ha empezado de verdad
+  if(DATA.phasePoints && DATA.phasePoints[editable] && Object.keys(DATA.phasePoints[editable]).length){
+    return editable;
+  }
+  const kickoff = getFirstKickoffOfRound(editable);
+  if(kickoff !== null && Date.now() >= kickoff) return editable;
+  return PHASE_ORDER[idx-1];
 }
 
 function confirmarCambio(friendName, playerIdx, jugadorEntra, posEntra){
