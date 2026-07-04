@@ -3208,7 +3208,7 @@ ul.ranking{list-style:none}
 </div>
 
 <script>
-const APP_VERSION = 1783187715;
+const APP_VERSION = 1783190573;
 if('serviceWorker' in navigator) {
   navigator.serviceWorker.ready.then(() => {
     setInterval(() => {
@@ -3737,6 +3737,22 @@ function buildRoster(f){
     const cambiosFase = (((DATA.cambiosByPhase||{})[f.name]||{})[ph]||[]).filter(c=>c.sale&&c.entra);
     cambiosFase.forEach(c => { sustitucionMap[c.sale] = {entra: c.entra, fase: ph}; });
   });
+  // Sigue la cadena de sustituciones hasta el jugador que ocupa el hueco AHORA MISMO.
+  // Sin esto, si un jugador pasa por dos cambios seguidos (A→B en d16 y luego B→C en
+  // r16), el sistema se quedaba en B (el sustituto intermedio) en vez de mostrar C.
+  function resolverSustitucionFinal(nombreOriginal){
+    let actual = nombreOriginal;
+    let faseFinal = null;
+    const visitados = new Set([actual]);
+    while(sustitucionMap[actual]){
+      const siguiente = sustitucionMap[actual];
+      actual = siguiente.entra;
+      faseFinal = siguiente.fase;
+      if(visitados.has(actual)) break; // por si acaso, evita bucles infinitos
+      visitados.add(actual);
+    }
+    return actual === nombreOriginal ? null : { entra: actual, fase: faseFinal };
+  }
 
   // Calcular puntos de grupos por jugador directamente desde historialPartidos
   const GRUPAL_IDS = new Set(CALENDARIO.map(c=>c.id));
@@ -3761,57 +3777,79 @@ function buildRoster(f){
   // Posición del jugador que entró (heredada del que salió)
   const teamActual = getTeamForPhase(f, currentPhase);
 
+  const POS_ABBR_MAP = {'PT':'1.Portero','DF':'2.Defensa','MC':'3.Mediocentro','DL':'4.Delantero'};
   const byPos = {'1.Portero':[],'2.Defensa':[],'3.Mediocentro':[],'4.Delantero':[]};
-  teamGrupal.forEach(p=>{ if(byPos[p.pos]) byPos[p.pos].push(p); });
+  teamGrupal.forEach(p=>{
+    // Agrupar por la posición REAL de quien ocupa el hueco ahora mismo (la del
+    // jugador que entró, si hubo cambio), no por la posición histórica del hueco.
+    // Así un mediocentro sustituido por un defensa aparece en Defensa, no en
+    // Mediocentro (p.ej. Cucurella tras reemplazar a M. Caicedo).
+    const sustParaAgrupar = resolverSustitucionFinal(p.name);
+    let posParaAgrupar = p.pos;
+    if(sustParaAgrupar){
+      const dbEntra = PLAYERS_DB[sustParaAgrupar.entra];
+      if(dbEntra && POS_ABBR_MAP[dbEntra[0]]) posParaAgrupar = POS_ABBR_MAP[dbEntra[0]];
+    }
+    if(byPos[posParaAgrupar]) byPos[posParaAgrupar].push(p);
+  });
 
   let html = '';
 
   html += Object.entries(byPos).map(([pos, players])=>{
     if(!players.length) return '';
     const rows = players.map(p=>{
-      const pG = (ptsGrupalMap[p.name]||0);
-      // Estado de capitán: usar el equipo de la fase actual (refleja cambios de capitán),
-      // no el snapshot de grupos que puede estar desactualizado tras un newCaptain.
-      const teamActualSelf = teamActual.find(x=>x.name===p.name);
-      const esCapActual = teamActualSelf ? teamActualSelf.captain : p.captain;
-      const effG = pG * (esCapActual ? 2 : 1);
-      const _db = PLAYERS_DB[p.name]; const _flag = _db?(FLAGS[_db[1]]||''):'';
+      const sust = resolverSustitucionFinal(p.name);
+      const activo = sust ? sust.entra : p.name;
+
+      const teamActualSelf = teamActual.find(x=>x.name===activo);
+      const esCapActual = teamActualSelf ? teamActualSelf.captain : (activo===p.name ? p.captain : false);
+      const _db = PLAYERS_DB[activo]; const _flag = _db?(FLAGS[_db[1]]||''):'';
       const cap = esCapActual ? `<span class="captain-badge">C</span>` : '';
-      const sust = sustitucionMap[p.name];
 
-      if(sust && currentPhase !== 'grupal'){
-        // Este jugador salió — mostrarlo tachado + debajo el que entró
-        const pE = sust.entra;
-        const haJugadoE = ptsFaseMap[pE] !== undefined;
-        const elimE = isPlayerEliminated(pE);
-        const _dbEnat = PLAYERS_DB[pE]; const natE = _dbEnat ? _dbEnat[1] : null;
-        const partidoFinalizadoE = !haJugadoE && hasMatchFinishedInPhase(natE, displayPhase);
-        const estadoE = elimE ? ' 🚫' : ` ${(haJugadoE || partidoFinalizadoE) ? '✅' : '⏳'}`;
-        const ptsFaseE = ptsFaseMap[pE]||0;
-        // Capitán puede haber cambiado en fase actual
-        const teamActualPlayer = teamActual.find(x=>x.name===pE);
-        const esCapNuevo = teamActualPlayer&&teamActualPlayer.captain;
-        const effE = ptsFaseE * (esCapNuevo ? 2 : 1);
-        const _dbE = PLAYERS_DB[pE]; const _flagE = _dbE?(FLAGS[_dbE[1]]||''):'';
-        const capE = esCapNuevo ? `<span class="captain-badge">C</span>` : '';
-        const faseExtraE = ptsFaseE ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+${ptsFaseE})</span>` : (partidoFinalizadoE ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+0)</span>` : '');
-        return `<div class="player-row" style="opacity:0.35;cursor:pointer;display:flex;align-items:center;gap:6px" onclick="openPlayerModal('${escJs(p.name)}','${escJs(f.name)}')">${playerFlagHtml(p.name,22)}<span class="player-name" style="text-decoration:line-through;color:rgba(180,200,220,0.5);flex:1">${p.name}${cap}</span><span class="player-score zero" style="font-size:0.72rem">${effG} pts</span></div>` +
-               `<div class="player-row" style="padding-left:12px;border-left:2px solid rgba(74,222,128,0.3);margin-left:4px;cursor:pointer;display:flex;align-items:center;gap:6px" onclick="openPlayerModal('${escJs(pE)}','${escJs(f.name)}')">${playerFlagHtml(pE,22)}<span class="player-name" style="color:rgba(180,255,200,0.9);flex:1">${pE}${capE}${estadoE}${faseExtraE}</span><span class="player-score ${effE===0?'zero':''}">${effE} pts</span></div>`;
-      }
-
-      // Jugador que sigue en el equipo — mostrar pts de grupos + pts de la fase actual (si la hay)
-      const pFaseActual = (displayPhase !== 'grupal') ? (ptsFaseMap[p.name]||0) : 0;
-      const totalJugador = pG + pFaseActual;
+      // El total debe sumar TODAS las fases en las que este jugador estuvo
+      // realmente fichado (grupos + cada eliminatoria en la que ya formaba
+      // parte del equipo), no solo grupos + la fase que se está viendo ahora.
+      // Si no, un jugador fichado en dieciseisavos "pierde" esos puntos en
+      // cuanto se avanza a octavos.
+      const totalJugador = getPlayerPointsWhileActive(f, activo);
       const effTotal = totalJugador * (esCapActual ? 2 : 1);
-      const eliminado = isPlayerEliminated(p.name);
-      const haJugado = ptsFaseMap[p.name] !== undefined;
+      const eliminado = isPlayerEliminated(activo);
+      const haJugado = ptsFaseMap[activo] !== undefined;
       const partidoFinalizado = !haJugado && hasMatchFinishedInPhase(_db ? _db[1] : null, displayPhase);
-      const faseExtra = pFaseActual ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+${pFaseActual})</span>` : (partidoFinalizado ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+0)</span>` : '');
+      // El "+N" es solo el aporte de la fase actual (indicador visual de "recién sumado")
+      const pFaseActualIndicador = (displayPhase !== 'grupal') ? (ptsFaseMap[activo]||0) : 0;
+      const faseExtra = pFaseActualIndicador ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+${pFaseActualIndicador})</span>` : (partidoFinalizado ? ` <span style="font-size:0.58rem;color:rgba(74,222,128,0.6)">(+0)</span>` : '');
       const estado = eliminado ? ' 🚫' : (displayPhase !== 'grupal' ? ` ${(haJugado || partidoFinalizado) ? '✅' : '⏳'}` : '');
-      return `<div class="player-row" style="cursor:pointer;display:flex;align-items:center;gap:6px" onclick="openPlayerModal('${escJs(p.name)}','${escJs(f.name)}')">${playerFlagHtml(p.name,22)}<span class="player-name" style="flex:1">${p.name}${cap}${estado}${faseExtra}</span><span class="player-score ${effTotal===0?'zero':''}">${effTotal} pts</span></div>`;
+      return `<div class="player-row" style="cursor:pointer;display:flex;align-items:center;gap:6px" onclick="openPlayerModal('${escJs(activo)}','${escJs(f.name)}')">${playerFlagHtml(activo,22)}<span class="player-name" style="flex:1">${activo}${cap}${estado}${faseExtra}</span><span class="player-score ${effTotal===0?'zero':''}">${effTotal} pts</span></div>`;
     }).join('');
     return `<div class="pos-group"><div class="pos-title">${posLabels[pos]}</div>${rows}</div>`;
   }).join('');
+
+  // Bajas: jugadores que ya no están en el equipo (fueron sustituidos en algún
+  // momento, incluidos sustitutos intermedios que a su vez fueron sustituidos
+  // otra vez). Se muestran juntas, debajo del último delantero, en negrita y
+  // tachado, con los puntos que hicieron SOLO mientras estuvieron fichados.
+  const activosActuales = new Set(teamGrupal.map(p=>{
+    const sust = resolverSustitucionFinal(p.name);
+    return sust ? sust.entra : p.name;
+  }));
+  const bajasNombres = new Set();
+  Object.entries(sustitucionMap).forEach(([saleName])=>{
+    if(!activosActuales.has(saleName)) bajasNombres.add(saleName);
+  });
+  if(currentPhase !== 'grupal' && bajasNombres.size){
+    const POS_ABBR_MAP2 = {'PT':'1.Portero','DF':'2.Defensa','MC':'3.Mediocentro','DL':'4.Delantero'};
+    const bajas = [...bajasNombres].map(name=>{
+      const db = PLAYERS_DB[name];
+      const pos = db ? (POS_ABBR_MAP2[db[0]]||'') : '';
+      const pts = getPlayerPointsWhileActive(f, name);
+      return {name, pos, pts};
+    }).sort((a,b)=>(a.pos||'').localeCompare(b.pos||''));
+
+    html += `<div class="pos-group"><div class="pos-title">Bajas</div>` +
+      bajas.map(b=>`<div class="player-row" style="opacity:0.7;cursor:pointer;display:flex;align-items:center;gap:6px" onclick="openPlayerModal('${escJs(b.name)}','${escJs(f.name)}')">${playerFlagHtml(b.name,22)}<span class="player-name" style="font-weight:700;text-decoration:line-through;color:rgba(190,205,225,0.6);flex:1">${b.name}</span><span class="player-score" style="font-size:0.72rem">${b.pts} pts</span></div>`).join('') +
+      `</div>`;
+  }
 
   // Botón cambios
   const hechosFase = currentPhase !== 'grupal'
