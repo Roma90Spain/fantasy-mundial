@@ -3204,7 +3204,7 @@ ul.ranking{list-style:none}
 </div>
 
 <script>
-const APP_VERSION = 1783242799;
+const APP_VERSION = 1783244877;
 function checkForNewVersion(){
   const bustUrl = window.location.href.split('?')[0].split('#')[0] + '?_cb=' + Date.now();
   fetch(bustUrl, {cache: 'no-store'})
@@ -5305,7 +5305,7 @@ function renderKnockout(){
 
     // r16 column: 4 cards, each centered in R16_CELL, no gap needed (cells are contiguous)
     const r16cards = r16idx.map(i=>({r:'r16',i}));
-    let r16html = `<div style="display:flex;flex-direction:column">`;
+    let r16html = `<div style="display:flex;flex-direction:column"${isLeft ? ' id="r16-scroll-anchor"' : ''}>`;
     r16cards.forEach((c,p)=>{
       r16html += `<div style="height:${R16_CELL}px;display:flex;align-items:center">${matchCard(c.r,c.i)}</div>`;
     });
@@ -6052,7 +6052,23 @@ function generateSaveableHtml(){
 // ===== BUTTON EVENTS =====
 document.getElementById('toggleTopBtn').addEventListener('click',()=>{ togglePanel('topPanel'); renderTop10(); });
 document.getElementById('togglePartidosBtn').addEventListener('click',()=>{ togglePanel('partidosPanel'); renderPartidosPanel(); });
-document.getElementById('toggleKnockoutBtn').addEventListener('click',()=>{ togglePanel('knockoutPanel'); renderKnockout(); });
+document.getElementById('toggleKnockoutBtn').addEventListener('click',()=>{
+  togglePanel('knockoutPanel');
+  renderKnockout();
+  const panel = document.getElementById('knockoutPanel');
+  if(panel && panel.style.display !== 'none'){
+    // Al abrir, desplazar horizontalmente hasta Octavos (en vez de empezar en
+    // Dieciseisavos), pero dejando el cruce completo libre para desplazar.
+    setTimeout(()=>{
+      const anchor = document.getElementById('r16-scroll-anchor');
+      const scrollWrap = panel.querySelector('div[style*="overflow-x:auto"]');
+      if(anchor && scrollWrap){
+        const delta = anchor.getBoundingClientRect().left - scrollWrap.getBoundingClientRect().left;
+        scrollWrap.scrollLeft = Math.max(0, scrollWrap.scrollLeft + delta - 12);
+      }
+    }, 0);
+  }
+});
 document.getElementById('toggleSearchBtn').addEventListener('click',()=>{ togglePanel('searchPanel'); setTimeout(()=>document.getElementById('searchInput').focus(),100); });
 document.getElementById('toggle11Btn').addEventListener('click',()=>{ togglePanel('panel11'); render11(); });
 document.getElementById('toggleTablaBtn').addEventListener('click',()=>{ togglePanel('tablaPanel'); renderTablaGrupos(); });
