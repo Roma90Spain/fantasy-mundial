@@ -485,6 +485,9 @@ ul.ranking{list-style:none}
     <button class="btn" id="toggleBootsBtn" style="flex:1;background:#1a1000;border-color:#4a3000;color:#ffd700;">👟 Bota de Oro</button>
     <button class="btn" id="toggleGlovesBtn" style="flex:1;background:#001a1a;border-color:#004a4a;color:#00e5ff;">🧤 Guante de Oro</button>
   </div>
+  <div class="update-bar">
+    <button class="btn" id="toggleTeamsBtn" style="flex:1;background:#0a0a1a;border-color:#20204a;color:#a5b4fc;">🌍 Equipos Fase Final</button>
+  </div>
 
   <!-- Paneles -->
   <div class="panel" id="topPanel" style="display:none"></div>
@@ -2756,67 +2759,15 @@ ul.ranking{list-style:none}
       <div style="font-weight:700;font-size:0.95rem">🥇🧤 Guante de Oro — Porteros menos goleados</div>
       <div style="font-size:0.72rem;color:var(--muted);margin-top:3px">Se actualiza al importar partidos en ⚽ Grupos</div>
     </div>
-    <div id="glovesContent"><div style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-        <span style="font-weight:700;font-size:0.88rem">🥇 🇫🇷 Maignan</span>
-        <div style="text-align:right">
-          <span style="font-weight:800;font-size:1rem;color:#00e5ff">0 GC</span>
-          <span style="font-size:0.72rem;color:var(--accent2);margin-left:6px">2 CS 🔒</span>
-        </div>
-      </div>
-      <div style="font-size:0.7rem;color:var(--muted);margin-bottom:3px">Francia · 2 partidos <span style="font-size:0.68rem;color:var(--accent2)">👤 Alvaro, Jenny, Muñoz, Josete</span></div>
-      <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:6px">
-        <div style="height:6px;border-radius:4px;background:linear-gradient(90deg,#00b4cc,#00e5ff);width:0%"></div>
-      </div>
-    </div><div style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-        <span style="font-weight:700;font-size:0.88rem">🥈 🇨🇭 Kobel</span>
-        <div style="text-align:right">
-          <span style="font-weight:800;font-size:1rem;color:#00e5ff">0 GC</span>
-          
-        </div>
-      </div>
-      <div style="font-size:0.7rem;color:var(--muted);margin-bottom:3px">Suiza · 1 partidos </div>
-      <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:6px">
-        <div style="height:6px;border-radius:4px;background:linear-gradient(90deg,#00b4cc,#00e5ff);width:0%"></div>
-      </div>
-    </div><div style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-        <span style="font-weight:700;font-size:0.88rem">🥉 🇲🇽 Rangel</span>
-        <div style="text-align:right">
-          <span style="font-weight:800;font-size:1rem;color:#00e5ff">0 GC</span>
-          <span style="font-size:0.72rem;color:var(--accent2);margin-left:6px">1 CS 🔒</span>
-        </div>
-      </div>
-      <div style="font-size:0.7rem;color:var(--muted);margin-bottom:3px">México · 1 partidos </div>
-      <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:6px">
-        <div style="height:6px;border-radius:4px;background:linear-gradient(90deg,#00b4cc,#00e5ff);width:0%"></div>
-      </div>
-    </div><div style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-        <span style="font-weight:700;font-size:0.88rem"> 🇰🇷 Seung-gyu Kim</span>
-        <div style="text-align:right">
-          <span style="font-weight:800;font-size:1rem;color:#00e5ff">0 GC</span>
-          
-        </div>
-      </div>
-      <div style="font-size:0.7rem;color:var(--muted);margin-bottom:3px">Corea del Sur · 1 partidos </div>
-      <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:6px">
-        <div style="height:6px;border-radius:4px;background:linear-gradient(90deg,#00b4cc,#00e5ff);width:0%"></div>
-      </div>
-    </div><div style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-        <span style="font-weight:700;font-size:0.88rem"> 🇹🇷 Uğurcan Çakır</span>
-        <div style="text-align:right">
-          <span style="font-weight:800;font-size:1rem;color:#00e5ff">0 GC</span>
-          
-        </div>
-      </div>
-      <div style="font-size:0.7rem;color:var(--muted);margin-bottom:3px">Turquía · 1 partidos </div>
-      <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:6px">
-        <div style="height:6px;border-radius:4px;background:linear-gradient(90deg,#00b4cc,#00e5ff);width:0%"></div>
-      </div>
-    </div></div>
+    <div id="glovesContent"></div>
+  </div>
+
+  <div class="panel" id="teamsPanel" style="display: none;">
+    <div style="margin-bottom:12px">
+      <div style="font-weight:700;font-size:0.95rem">🌍 Equipos — Fase Final</div>
+      <div style="font-size:0.72rem;color:var(--muted);margin-top:3px">Toca un equipo para ver su plantilla, y un jugador para ver su ficha</div>
+    </div>
+    <div id="teamsContent"></div>
   </div>
 
   <!-- Modal editor -->
@@ -3181,7 +3132,7 @@ ul.ranking{list-style:none}
 </div>
 
 <script>
-const APP_VERSION = 1783481550;
+const APP_VERSION = 1783493500;
 function checkForNewVersion(){
   const bustUrl = window.location.href.split('?')[0].split('#')[0] + '?_cb=' + Date.now();
   fetch(bustUrl, {cache: 'no-store'})
@@ -3518,7 +3469,7 @@ function getFriendPhaseTotal(f, phase){
 function getSorted(){ return [...DATA.friends].sort((a,b)=>getFriendTotal(b)-getFriendTotal(a)); }
 function setStatus(msg,err=false){ const s=document.getElementById('status'); s.textContent=msg; s.className='status'+(err?' error':''); }
 function closeAllPanels(){
-  ['topPanel','partidosPanel','knockoutPanel','searchPanel','panel11','calPanel','statsPanel','bootsPanel','glovesPanel','tablaPanel','evoPanel']
+  ['topPanel','partidosPanel','knockoutPanel','searchPanel','panel11','calPanel','statsPanel','bootsPanel','glovesPanel','teamsPanel','tablaPanel','evoPanel']
     .forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
 }
 function togglePanel(id){
@@ -3853,6 +3804,212 @@ function buildRoster(f){
 
 // Recopila el historial de puntos de un jugador (grupos + eliminatorias importadas)
 // e indica en cada partido si el amigo lo tenía fichado en ese momento.
+// ===== EQUIPOS — FASE FINAL =====
+const KO_ROUND_COUNT = {d16:16, r16:8, qf:4, sf:2, f:1};
+const KO_ROUND_LABEL = {d16:'Dieciseisavos', r16:'Octavos', qf:'Cuartos', sf:'Semifinal', f:'Final'};
+
+// Devuelve { alive: [nombres...], eliminated: [{name, lastRound}...] }
+function getTeamsStatus(){
+  const ko = DATA.knockout || {};
+  const eliminatedAt = {}; // team -> round key donde perdió
+  const everSeen = new Set();
+  let lastRoundWithData = 'd16';
+
+  KO_ORDER.forEach(round=>{
+    const total = KO_ROUND_COUNT[round];
+    let roundHasAnyMatch = false;
+    for(let i=0;i<total;i++){
+      const m = ko[round+'_'+i];
+      if(!m || !m.a) continue;
+      roundHasAnyMatch = true;
+      if(m.a) everSeen.add(m.a);
+      if(m.b) everSeen.add(m.b);
+      if(m.winner){
+        const loser = m.winner===m.a ? m.b : m.a;
+        if(loser) eliminatedAt[loser] = round;
+      }
+    }
+    if(roundHasAnyMatch) lastRoundWithData = round;
+  });
+
+  const alive = [];
+  const eliminated = [];
+  // Orden: recorremos las rondas en orden para mantener el orden del cruce
+  const ordenVisto = [];
+  KO_ORDER.forEach(round=>{
+    const total = KO_ROUND_COUNT[round];
+    for(let i=0;i<total;i++){
+      const m = ko[round+'_'+i];
+      if(!m) return;
+      [m.a, m.b].forEach(team=>{
+        if(team && !ordenVisto.includes(team)) ordenVisto.push(team);
+      });
+    }
+  });
+  ordenVisto.forEach(team=>{
+    if(eliminatedAt[team]) eliminated.push({name:team, lastRound:eliminatedAt[team]});
+    else alive.push(team);
+  });
+  // Eliminados: más lejos llegaron, más arriba. Dentro de la misma ronda, se
+  // mantiene el orden del cruce.
+  const roundRank = {d16:0, r16:1, qf:2, sf:3, f:4};
+  eliminated.sort((a,b)=> roundRank[b.lastRound]-roundRank[a.lastRound]);
+
+  return {alive, eliminated};
+}
+
+function renderTeamsPanel(){
+  const panel = document.getElementById('teamsContent');
+  const {alive, eliminated} = getTeamsStatus();
+  if(!alive.length && !eliminated.length){
+    panel.innerHTML = '<div class="empty" style="padding:20px 0">Aún no hay datos suficientes de la fase eliminatoria.</div>';
+    return;
+  }
+  const rowHtml = (team, eliminadoEn)=>{
+    const flag = FLAGS[team] || '';
+    const tag = eliminadoEn ? ` <span style="color:#f87171;font-weight:600">(Eliminado${eliminadoEn!=='?' ? ' en '+KO_ROUND_LABEL[eliminadoEn] : ''})</span>` : '';
+    return `<div onclick="openTeamRoster('${escJs(team)}')" style="display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid rgba(40,70,110,0.3);cursor:pointer;${eliminadoEn?'opacity:0.6':''}">
+      <span style="font-size:1.3rem">${flag}</span>
+      <span style="flex:1;font-size:0.9rem;font-weight:700;color:#f2f6ff">${team}${tag}</span>
+      <span style="color:var(--muted)">›</span>
+    </div>`;
+  };
+  let html = '';
+  if(alive.length){
+    html += `<div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:#4ade80;margin:6px 0 4px">Siguen en pie</div>`;
+    html += alive.map(t=>rowHtml(t,null)).join('');
+  }
+  if(eliminated.length){
+    html += `<div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:14px 0 4px">Eliminados</div>`;
+    html += eliminated.map(e=>rowHtml(e.name, e.lastRound)).join('');
+  }
+  panel.innerHTML = html;
+}
+
+// Plantilla de un equipo, agrupada por posición
+function openTeamRoster(teamName){
+  const posLabels = {'PT':'🧤 Portero','DF':'🛡️ Defensa','MC':'⚙️ Mediocentro','DL':'⚡ Delantero'};
+  const posOrder = ['PT','DF','MC','DL'];
+  const jugadores = Object.entries(PLAYERS_DB).filter(([n,d])=>d[1]===teamName).map(([n,d])=>({name:n,pos:d[0]}));
+
+  let modal = document.getElementById('teamRosterModal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'teamRosterModal';
+    modal.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(4,10,20,0.99);border-top:2px solid rgba(80,140,255,0.4);border-radius:16px 16px 0 0;padding:16px 14px 28px;box-shadow:0 -8px 40px rgba(0,0,0,0.9);max-height:88vh;overflow-y:auto;display:none';
+    document.body.appendChild(modal);
+  }
+
+  const flag = FLAGS[teamName] || '';
+  const {eliminated} = getTeamsStatus();
+  const elim = eliminated.find(e=>e.name===teamName);
+  const estadoTag = elim ? `<span style="color:#f87171">Eliminado en ${KO_ROUND_LABEL[elim.lastRound]}</span>` : `<span style="color:#4ade80">Sigue en pie</span>`;
+
+  const faseActual = getCurrentPhase();
+  const gruposHtml = posOrder.map(pos=>{
+    const list = jugadores.filter(j=>j.pos===pos);
+    if(!list.length) return '';
+    const rows = list.map(j=>{
+      const owners = DATA.friends.filter(f=>getTeamForPhase(f, faseActual).some(x=>x.name===j.name));
+      const ownerTag = owners.length
+        ? `<div style="font-size:0.68rem;color:var(--accent2);margin-top:1px">👤 Fichado por: ${owners.map(f=>f.name).join(', ')}</div>`
+        : `<div style="font-size:0.68rem;color:rgba(160,180,210,0.45);margin-top:1px">Sin fichar</div>`;
+      return `<div onclick="openPlayerModalGlobal('${escJs(j.name)}')" style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid rgba(40,70,110,0.25);cursor:pointer">
+        ${playerAvatarHtml(j.name,30)}
+        <div style="flex:1">
+          <div style="font-size:0.85rem;color:#dce8ff">${j.name}</div>
+          ${ownerTag}
+        </div>
+        <span style="color:var(--muted)">›</span>
+      </div>`;
+    }).join('');
+    return `<div style="margin-bottom:10px"><div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:2px">${posLabels[pos]}</div>${rows}</div>`;
+  }).join('');
+
+  modal.innerHTML = `
+    <div style="position:sticky;top:-16px;z-index:5;text-align:center;padding:6px 14px 14px;margin:-16px -14px 14px;background:linear-gradient(180deg,#0a1428 75%,rgba(10,20,40,0.98))">
+      <button onclick="document.getElementById('teamRosterModal').style.display='none'" style="position:absolute;top:10px;right:10px;background:rgba(30,60,120,0.5);border:1px solid rgba(80,120,200,0.4);color:#aac4ff;font-size:0.78rem;cursor:pointer;padding:5px 12px;border-radius:8px">✕ Cerrar</button>
+      <div style="font-size:2.4rem;margin-top:14px">${flag}</div>
+      <div style="font-size:1.15rem;color:#f2f6ff;font-weight:800;margin-top:6px">${teamName}</div>
+      <div style="font-size:0.78rem;margin-top:4px">${estadoTag}</div>
+    </div>
+    ${gruposHtml || '<div style="color:var(--muted);font-size:0.82rem;text-align:center;padding:14px 0">No hay jugadores registrados para este equipo.</div>'}
+  `;
+  modal.style.display = 'block';
+}
+
+// Historial de puntos de un jugador SIN depender de ningún amigo (modo
+// "explorar equipos"): recorre fase de grupos y fase eliminatoria por igual.
+function getPlayerHistoryGlobal(playerName){
+  const grupos = [];
+  const eliminatoria = [];
+  CALENDARIO.forEach(c=>{
+    const h = DATA.historialPartidos[c.id];
+    if(!h) return;
+    const entry = (h.jugadores||[]).find(j=>j.nombre===playerName);
+    if(!entry) return;
+    grupos.push({ label:`J${c.j}`, detalle:`${c.local} ${RESULTADOS[c.id]||''} ${c.visit}`, pts:entry.pts });
+  });
+  FASE_FINAL.forEach(ronda=>{
+    ronda.partidos.forEach(partido=>{
+      const e = DATA.koExtra && DATA.koExtra[partido.id];
+      if(!e || !e.imported) return;
+      const entry = (e.jugadores||[]).find(j=>j.nombre===playerName);
+      if(!entry) return;
+      eliminatoria.push({ label:ronda.label, detalle:e.resultado?`${e.resultado}`:'', pts:entry.pts });
+    });
+  });
+  return {grupos, eliminatoria};
+}
+
+function openPlayerModalGlobal(playerName){
+  const db = PLAYERS_DB[playerName];
+  const pos = db ? db[0] : '?';
+  const nat = db ? db[1] : '?';
+  const flag = FLAGS[nat] || '';
+  const posLabels = {'PT':'🧤 Portero','DF':'🛡️ Defensa','MC':'⚙️ Mediocentro','DL':'⚡ Delantero'};
+
+  const {grupos, eliminatoria} = getPlayerHistoryGlobal(playerName);
+  const totalPts = [...grupos, ...eliminatoria].reduce((s,h)=>s+h.pts,0);
+
+  const filaHtml = h => `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 4px;border-bottom:1px solid rgba(40,70,110,0.35)">
+    <div>
+      <div style="font-size:0.82rem;color:#dce8ff;font-weight:600">${h.label}</div>
+      <div style="font-size:0.68rem;color:rgba(160,180,210,0.55)">${h.detalle}</div>
+    </div>
+    <div style="font-size:0.95rem;font-weight:700;color:${h.pts>0?'#4ade80':h.pts<0?'#f87171':'#9fb3cc'}">${h.pts} pts</div>
+  </div>`;
+
+  const gruposHtml = grupos.length ? grupos.map(filaHtml).join('') : '<div style="color:rgba(160,180,210,0.5);font-size:0.78rem;padding:8px 0;text-align:center">Sin partidos de grupos registrados.</div>';
+  const koHtml = eliminatoria.length ? eliminatoria.map(filaHtml).join('') : '<div style="color:rgba(160,180,210,0.5);font-size:0.78rem;padding:8px 0;text-align:center">Sin partidos de fase eliminatoria registrados.</div>';
+
+  let modal = document.getElementById('playerModalGlobal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'playerModalGlobal';
+    modal.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:10000;background:rgba(4,10,20,0.99);border-top:2px solid rgba(80,140,255,0.4);border-radius:16px 16px 0 0;padding:16px 14px 28px;box-shadow:0 -8px 40px rgba(0,0,0,0.9);max-height:88vh;overflow-y:auto;display:none';
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `
+    <div style="position:sticky;top:-16px;z-index:5;text-align:center;padding:6px 14px 16px;margin:-16px -14px 14px;background:linear-gradient(180deg,#0a1428 75%,rgba(10,20,40,0.98))">
+      <button onclick="document.getElementById('playerModalGlobal').style.display='none'" style="position:absolute;top:10px;right:10px;background:rgba(30,60,120,0.5);border:1px solid rgba(80,120,200,0.4);color:#aac4ff;font-size:0.78rem;cursor:pointer;padding:5px 12px;border-radius:8px">✕ Cerrar</button>
+      <div style="margin-top:18px">${playerAvatarHtml(playerName,84)}</div>
+      <div style="font-size:1.15rem;color:#f2f6ff;font-weight:800;margin-top:10px">${playerName}</div>
+      <div style="display:inline-flex;align-items:center;gap:6px;font-size:0.78rem;color:rgba(180,200,230,0.85);background:rgba(15,35,80,0.5);border-radius:20px;padding:4px 12px;margin-top:6px">${flag} ${posLabels[pos]||pos} · ${nat}</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(15,35,80,0.4);border-radius:10px;padding:10px 12px;margin-bottom:14px">
+      <span style="font-size:0.78rem;color:rgba(180,200,230,0.8)">Puntos totales</span>
+      <span style="font-size:1.05rem;font-weight:700;color:#4ade80">${totalPts} pts</span>
+    </div>
+    <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;color:rgba(140,165,200,0.6);margin-bottom:4px">Fase de grupos</div>
+    ${gruposHtml}
+    <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em;color:rgba(140,165,200,0.6);margin:14px 0 4px">Fase eliminatoria</div>
+    ${koHtml}
+  `;
+  modal.style.display = 'block';
+}
+
 function getPlayerHistory(playerName, f){
   const historial = [];
 
@@ -6093,6 +6250,7 @@ document.getElementById('toggleEvoBtn').addEventListener('click',()=>{ togglePan
 document.getElementById('shareCardBtn').addEventListener('click', shareCard);
 document.getElementById('toggleBootsBtn').addEventListener('click',()=>{ togglePanel('bootsPanel'); renderBoots(); });
 document.getElementById('toggleGlovesBtn').addEventListener('click',()=>{ togglePanel('glovesPanel'); renderGloves(); });
+document.getElementById('toggleTeamsBtn').addEventListener('click',()=>{ togglePanel('teamsPanel'); renderTeamsPanel(); });
 document.getElementById('toggleCalBtn').addEventListener('click',()=>{
   const wasOpen=document.getElementById('calPanel').style.display==='block';
   togglePanel('calPanel');
