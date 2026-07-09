@@ -3132,7 +3132,7 @@ ul.ranking{list-style:none}
 </div>
 
 <script>
-const APP_VERSION = 1783626575;
+const APP_VERSION = 1783633631;
 function checkForNewVersion(){
   const bustUrl = window.location.href.split('?')[0].split('#')[0] + '?_cb=' + Date.now();
   fetch(bustUrl, {cache: 'no-store'})
@@ -3310,11 +3310,12 @@ function playerImgSlug(name){
 // Nombres cuyo archivo real no sigue el slug con guiones estándar
 const PLAYER_IMG_ALIAS = {
   'A. Gordon':'agordon','D. Muñoz':'dmunoz','E. Anderson':'eanderson',
-  'J. Rodríguez':'jrodriguez','N. Jackson':'njackson','Z.Suzuki':'zsuzuki'
+  'J. Rodríguez':'jrodriguez','N. Jackson':'njackson','Z.Suzuki':'zsuzuki',
+  'C. Vargas':'cvargas','Ødegaard':'odegaard'
 };
 function playerImgCandidates(name){
   const s = PLAYER_IMG_ALIAS[name] || playerImgSlug(name);
-  return ['Fotos_Jugadores1/'+s+'.png','Fotos_Jugadores2/'+s+'.png'];
+  return ['Fotos_Jugadores1/'+s+'.png','Fotos_Jugadores2/'+s+'.png','Fotos_Jugadores/'+s+'.png'];
 }
 function avatarImgError(img){
   const rest = img.dataset.rest;
@@ -3647,7 +3648,22 @@ function isPlayerEliminated(playerName){
       }
     }
   }
-  return false; // no encontrado en ninguna eliminatoria (aún en grupos o no llegó)
+  // La selección no aparece en NINGÚN partido eliminatorio. Si la fase de
+  // dieciseisavos ya se ha disputado (hay datos de d16), significa que esta
+  // selección quedó eliminada en la fase de grupos, no que "todavía no le
+  // toca" — de lo contrario jugadores de selecciones como Panamá o Corea del
+  // Sur (fuera en grupos) se mostraban incorrectamente como "pendientes".
+  const d16Keys = Object.keys(knockout).filter(k=>k.startsWith('d16_'));
+  if(d16Keys.length){
+    const clasificados = new Set();
+    d16Keys.forEach(k=>{
+      const m = knockout[k];
+      if(m && m.a) clasificados.add(m.a);
+      if(m && m.b) clasificados.add(m.b);
+    });
+    if(clasificados.size && !clasificados.has(nat)) return true;
+  }
+  return false; // aún en fase de grupos, torneo sin datos de d16 todavía
 }
 
 function buildRoster(f){
