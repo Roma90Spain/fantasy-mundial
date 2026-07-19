@@ -7970,9 +7970,12 @@ if(gs) gs.value = '';
   koPhases.forEach(phase=>{
     if(!DATA.phasePoints[phase]) DATA.phasePoints[phase] = {};
     const extra = DATA.koExtra||{};
-    // koExtra keys are like "d16_0", "r16_0", etc.
+    // koExtra keys are like "d16_0", "r16_0", etc. Usamos getPhaseOfMatch (misma
+    // función que usa el resto de la app) en vez de comparar el prefijo a mano,
+    // para que los partidos "tp_" (3er y 4º puesto) también se contabilicen
+    // correctamente como parte de la fase final.
     Object.entries(extra).forEach(([key, e])=>{
-      if(key.startsWith(phase.replace('_','')) && e.jugadores){
+      if(getPhaseOfMatch(key) === phase && e.jugadores){
         e.jugadores.forEach(j=>{
           DATA.phasePoints[phase][j.nombre] = (DATA.phasePoints[phase][j.nombre]||0) + j.pts;
         });
